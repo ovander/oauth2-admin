@@ -9,5 +9,5 @@
     "types": ["node"],
     "outDir": "./.tsbuild"
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "src/security/csp.ts"]
 }

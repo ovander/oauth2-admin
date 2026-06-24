@@ -6,31 +6,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Socrate — Superadmin Portal for the Socrate OAuth2 / OpenID Connect platform" />
     <!--
-      Content-Security-Policy and X-Frame-Options MUST be set via HTTP response
-      headers on your reverse proxy / web server — not via meta tags.
-      The meta http-equiv CSP is not supported by all browsers and is weaker
-      than the header form.
+      Content-Security-Policy + the hardening headers MUST be set as HTTP response
+      headers on your reverse proxy — not via meta tags (weaker / unsupported).
 
-      Recommended Nginx snippet (place in your server {} block):
-
-        add_header Content-Security-Policy
-          "default-src 'none';
-           script-src 'self';
-           style-src 'self' 'unsafe-inline';
-           font-src 'self';
-           connect-src 'self' https://your-admin-api-host;
-           img-src 'self' data:;
-           base-uri 'self';
-           form-action 'self';
-           frame-ancestors 'none';"
-          always;
-
-        add_header X-Frame-Options "DENY" always;
-        add_header X-Content-Type-Options "nosniff" always;
-        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
-
-      See docs/security-headers.md for full deployment guidance.
+      The CANONICAL policy lives in src/security/csp.ts (productionCsp() +
+      SECURITY_HEADERS) and is unit-tested. Generate the proxy config from it and
+      see docs/security-headers.md — including the Trusted Types Report-Only
+      rollout (require-trusted-types-for 'script').
     -->
     <title>Socrate — Superadmin Portal</title>
     <!-- Fonts are self-hosted — no external CDN requests (F-12) -->
