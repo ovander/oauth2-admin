@@ -3,6 +3,8 @@
 interface ImportMetaEnv {
   /** Base URL of the Socrate API gateway (HTTPS in production). Required. */
   readonly VITE_ADMIN_API_URL: string
+  /** OIDC issuer origin (authorize/token/refresh). Defaults to VITE_ADMIN_API_URL. */
+  readonly VITE_OAUTH_ISSUER?: string
   /** Public OAuth client id registered for the admin console. */
   readonly VITE_OAUTH_CLIENT_ID?: string
   /** Space-delimited scopes requested at /oauth/authorize. */
