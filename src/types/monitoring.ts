@@ -148,8 +148,6 @@ export interface GeoAnalyticsResponse {
 
 // ─── Alert Rules (/api/admin/alerts/rules) ───────────────────────────────────
 
-export type AlertAction = 'email' | 'webhook' | 'log'
-
 export interface AlertRuleRequest {
   name:         string
   description?: string

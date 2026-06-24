@@ -245,6 +245,7 @@ import { formatRelativeTime } from '@/utils/formatDate'
 import { deverror } from '@/utils/devlog'
 import type { SecurityEvent, ThreatMetricsResponse } from '@/types/security'
 import type { TokenStatsResponse, GeoAnalyticsResponse, RealtimeEventMessage } from '@/types/monitoring'
+import type { EventStreamHandle } from '@/services/monitoringService'
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const loading             = ref(true)
@@ -256,7 +257,7 @@ const geo                 = ref<GeoAnalyticsResponse | null>(null)
 
 // Live event stream (SSE) state
 const live          = ref(false)
-let eventStream: { close(): void } | null = null
+let eventStream: EventStreamHandle | null = null
 
 const tokenTotalIssued = computed(() => {
   const i = tokenStats.value?.issued
