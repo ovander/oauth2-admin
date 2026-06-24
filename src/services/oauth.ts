@@ -18,7 +18,7 @@
  * 401-refresh response interceptor can never recurse into the auth flow itself.
  */
 import axios from 'axios'
-import { ADMIN_API_URL } from '@/utils/secureConfig'
+import { OIDC_ISSUER } from '@/utils/secureConfig'
 import {
   generateCodeVerifier,
   deriveCodeChallenge,
@@ -34,8 +34,11 @@ const CLIENT_ID      = (import.meta.env.VITE_OAUTH_CLIENT_ID    ?? 'oauth2-admin
 const SCOPES         = (import.meta.env.VITE_OAUTH_SCOPES       ?? 'openid email profile').trim()
 const REDIRECT_PATH  = (import.meta.env.VITE_OAUTH_REDIRECT_PATH ?? '/auth/callback').trim()
 
-export const AUTHORIZE_ENDPOINT = `${ADMIN_API_URL}/oauth/authorize`
-export const TOKEN_ENDPOINT     = `${ADMIN_API_URL}/oauth/token`
+// authorize/token/refresh live on the OIDC issuer origin (services/secureConfig
+// resolves VITE_OIDC_ISSUER, falling back to the admin API origin). In split-port
+// dev this is :8080, a different origin from the admin API on :8081.
+export const AUTHORIZE_ENDPOINT = `${OIDC_ISSUER}/oauth/authorize`
+export const TOKEN_ENDPOINT     = `${OIDC_ISSUER}/oauth/token`
 /**
  * The admin refresh channel is the hardened `/oauth/token` refresh grant: the
  * HttpOnly refresh cookie is set AND read there (cookie `Path=/oauth/token`), so

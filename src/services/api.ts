@@ -1,6 +1,6 @@
 import axios, { type AxiosInstance, type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import router from '@/router/router'
-import { ADMIN_API_URL } from '@/utils/secureConfig'
+import { ADMIN_API_URL, OIDC_ISSUER } from '@/utils/secureConfig'
 import { refreshAccessToken } from '@/services/oauth'
 import {
   requireElevation,
@@ -23,14 +23,31 @@ export const tokenStore = {
   clear():          void          { _accessToken = null },
 }
 
-// ─── Axios instance ───────────────────────────────────────────────────────────
+// ─── Axios instances ──────────────────────────────────────────────────────────
+// `api` → the admin RESOURCE server (/api/admin/* on :8081). Bearer only; the
+//   refresh cookie is scoped to the issuer's /oauth/token path and is never sent
+//   here, so credentials are not needed.
 const api: AxiosInstance = axios.create({
   baseURL:         ADMIN_API_URL,
   timeout:         30_000,
-  withCredentials: true,           // required so the browser sends the HttpOnly refresh-token cookie
+  withCredentials: false,
   headers: {
     'Content-Type':   'application/json',
     'X-Requested-By': 'oauth2-admin', // lightweight CSRF mitigation (F-16)
+  },
+})
+
+// `issuerApi` → the OIDC ISSUER / public API (:8080): logout, profile
+//   self-service and password reset. Carries credentials so the HttpOnly cookie
+//   rides along (logout clears it). No silent-refresh/elevation dance — those
+//   only apply to the admin resource server.
+export const issuerApi: AxiosInstance = axios.create({
+  baseURL:         OIDC_ISSUER,
+  timeout:         30_000,
+  withCredentials: true,
+  headers: {
+    'Content-Type':   'application/json',
+    'X-Requested-By': 'oauth2-admin',
   },
 })
 
@@ -43,17 +60,17 @@ const processQueue = (err: unknown, token: string | null = null) => {
   failedQueue = []
 }
 
-// ─── Request interceptor — attach bearer token ────────────────────────────────
-api.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
-    const token = tokenStore.get()
-    if (token && config.headers) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  (err) => Promise.reject(err),
-)
+// ─── Request interceptor — attach bearer token (both instances) ───────────────
+function attachBearer(config: InternalAxiosRequestConfig): InternalAxiosRequestConfig {
+  const token = tokenStore.get()
+  if (token && config.headers) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+}
+
+api.interceptors.request.use(attachBearer, (err) => Promise.reject(err))
+issuerApi.interceptors.request.use(attachBearer, (err) => Promise.reject(err))
 
 // ─── Response interceptor — refresh on 401, gate console output ───────────────
 api.interceptors.response.use(
