@@ -21,6 +21,11 @@ import { tokenStore } from '@/services/api'
 import * as authService from '@/services/authService'
 import * as oauth from '@/services/oauth'
 import { OAuthError } from '@/services/oauth'
+import {
+  passwordChangeRequired,
+  flagPasswordChangeRequired,
+  clearPasswordChangeRequired,
+} from '@/services/adminGuards'
 import type { User } from '@/types/auth'
 
 // ─── Mock vue-router — spread actual exports so createRouter/createWebHistory
@@ -262,6 +267,41 @@ describe('authStore role computed properties', () => {
   })
   it('canManageUsers is false for viewer', async () => {
     expect((await loginAs('viewer')).canManageUsers).toBe(false)
+  })
+})
+
+// ─── Forced password change ───────────────────────────────────────────────────
+describe('authStore — forced password change', () => {
+  beforeEach(() => { tokenStore.clear(); clearPasswordChangeRequired() })
+
+  it('handleCallback keeps the access token and stays quiet when a change is required', async () => {
+    vi.mocked(oauth.completeLogin).mockResolvedValueOnce({ accessToken: 'gated-token' })
+    // Simulate the interceptor flagging the gate as the profile load is rejected.
+    vi.mocked(authService.getProfile).mockImplementationOnce(async () => {
+      flagPasswordChangeRequired()
+      throw { response: { status: 403, data: { error: 'password_change_required' } } }
+    })
+    const store = buildStore()
+
+    const result = await store.handleCallback({ code: 'abc', state: 'xyz' })
+
+    expect(result.ok).toBe(false)
+    expect(tokenStore.get()).toBe('gated-token')   // kept — change-password needs it
+    expect(store.error).toBeNull()                 // no scary "sign-in failed"
+    clearPasswordChangeRequired()
+  })
+
+  it('onPasswordChanged clears the token + flag and routes to Login', () => {
+    flagPasswordChangeRequired()
+    tokenStore.set('still-valid-token')
+    const store = buildStore()
+    store.user = mockUser
+
+    store.onPasswordChanged()
+
+    expect(tokenStore.get()).toBeNull()
+    expect(store.user).toBeNull()
+    expect(passwordChangeRequired.value).toBe(false)
   })
 })
 

@@ -24,6 +24,18 @@ import api, { tokenStore } from '@/services/api'
 // ── Import router so we can spy on router.push ────────────────────────────────
 import router from '@/router/router'
 
+// ── Mock only requireElevation (the UI prompt) so the step-up path is testable;
+//    challengeCode + the password-change flag stay real. ───────────────────────
+vi.mock('@/services/adminGuards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/adminGuards')>()
+  return { ...actual, requireElevation: vi.fn() }
+})
+import {
+  requireElevation,
+  passwordChangeRequired,
+  clearPasswordChangeRequired,
+} from '@/services/adminGuards'
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const TEST_URL    = `${BASE}/api/test-resource`
 // The api.ts interceptor refreshes against the hardened /oauth/token refresh
@@ -244,5 +256,69 @@ describe('api.ts — response interceptor: non-401 errors pass through', () => {
       response: { status: 500 },
     })
     expect(refreshHits).toBe(0)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('api.ts — response interceptor: 403 step-up / forced password change', () => {
+  beforeEach(() => {
+    tokenStore.clear()
+    clearPasswordChangeRequired()
+  })
+
+  function elevationRequired() { return HttpResponse.json({ error: 'elevation_required' }, { status: 403 }) }
+  function pwChangeRequired()  { return HttpResponse.json({ error: 'password_change_required' }, { status: 403 }) }
+
+  it('prompts for step-up on 403 elevation_required and retries with the elevated token', async () => {
+    // The prompt resolves by swapping in a fresh elevated token.
+    vi.mocked(requireElevation).mockImplementation(async () => { tokenStore.set('elevated-token') })
+
+    let calls = 0
+    const seen: string[] = []
+    server.use(
+      http.get(TEST_URL, ({ request }) => {
+        calls++
+        seen.push(request.headers.get('Authorization') ?? 'none')
+        return calls === 1 ? elevationRequired() : ok200()
+      }),
+    )
+
+    tokenStore.set('stale-token')
+    const res = await api.get('/api/test-resource')
+
+    expect(res.status).toBe(200)
+    expect(requireElevation).toHaveBeenCalledTimes(1)
+    expect(seen[1]).toBe('Bearer elevated-token')
+  })
+
+  it('rejects the request when the admin cancels the step-up prompt', async () => {
+    vi.mocked(requireElevation).mockRejectedValueOnce(new Error('cancelled'))
+    server.use(http.get(TEST_URL, () => elevationRequired()))
+
+    await expect(api.get('/api/test-resource')).rejects.toMatchObject({
+      response: { status: 403, data: { error: 'elevation_required' } },
+    })
+  })
+
+  it('does NOT re-prompt twice (single retry) if elevation_required persists', async () => {
+    vi.mocked(requireElevation).mockImplementation(async () => { tokenStore.set('elevated-token') })
+    let hits = 0
+    server.use(http.get(TEST_URL, () => { hits++; return elevationRequired() }))
+
+    await expect(api.get('/api/test-resource')).rejects.toMatchObject({ response: { status: 403 } })
+    expect(hits).toBe(2)                       // original + one retry, no loop
+    expect(requireElevation).toHaveBeenCalledTimes(1)
+  })
+
+  it('flags forced password change on 403 password_change_required', async () => {
+    server.use(http.get(TEST_URL, () => pwChangeRequired()))
+
+    expect(passwordChangeRequired.value).toBe(false)
+    await expect(api.get('/api/test-resource')).rejects.toMatchObject({
+      response: { status: 403, data: { error: 'password_change_required' } },
+    })
+    expect(passwordChangeRequired.value).toBe(true)
+
+    clearPasswordChangeRequired()
   })
 })

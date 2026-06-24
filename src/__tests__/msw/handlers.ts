@@ -83,6 +83,27 @@ export const handlers = [
   // POST /api/auth/request-password-reset
   http.post(`${BASE}/api/auth/request-password-reset`, () => HttpResponse.json({})),
 
+  // POST /api/admin/elevate ── step-up re-auth → fresh access token
+  http.post(`${BASE}/api/admin/elevate`, async ({ request }) => {
+    const body = await request.json() as { password?: string; mfa_code?: string }
+    if (body.password === 'correct-password') {
+      return HttpResponse.json({ access_token: 'elevated-access-token', token_type: 'Bearer', expires_in: 300 })
+    }
+    return HttpResponse.json({ error: 'invalid credentials' }, { status: 401 })
+  }),
+
+  // POST /api/admin/change-password ── forced/self-service change
+  http.post(`${BASE}/api/admin/change-password`, async ({ request }) => {
+    const body = await request.json() as { current_password?: string; new_password?: string }
+    if (!body.current_password || !body.new_password) {
+      return HttpResponse.json({ error: 'current and new password required' }, { status: 400 })
+    }
+    if (body.current_password !== 'correct-password') {
+      return HttpResponse.json({ message: 'Current password is incorrect' }, { status: 401 })
+    }
+    return HttpResponse.json({})
+  }),
+
   // PUT /api/profile ── public profile self-service update
   http.put(`${BASE}/api/profile`, async ({ request }) => {
     const body = await request.json() as Partial<typeof ADMIN_USER>

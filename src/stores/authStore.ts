@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import * as authService from '@/services/authService'
 import * as oauth from '@/services/oauth'
 import { tokenStore } from '@/services/api'
+import { passwordChangeRequired, clearPasswordChangeRequired } from '@/services/adminGuards'
 import { normalizeRole } from '@/types/auth'
 import { isSuperAdminRole, isAppAdminRole, canManageUsersRole } from '@/utils/roles'
 import type { User } from '@/types/auth'
@@ -78,6 +79,12 @@ export const useAuthStore = defineStore('auth', () => {
       await _loadProfile()
       return { ok: true, returnPath }
     } catch (err: unknown) {
+      // A forced password change surfaces as 403 during the profile load. Keep
+      // the access token (the change-password call needs it) and stay quiet —
+      // the router guard / global watcher routes to the change-password page.
+      if (passwordChangeRequired.value) {
+        return { ok: false }
+      }
       tokenStore.clear()
       user.value = null
       error.value = oauth.isOAuthError(err)
@@ -113,13 +120,17 @@ export const useAuthStore = defineStore('auth', () => {
         await _loadProfile()
         return true
       } catch {
-        tokenStore.clear()
+        // Keep the (valid but gated) token if a password change is required.
+        if (!passwordChangeRequired.value) tokenStore.clear()
         user.value = null
         return false
       }
     }
 
     // No in-memory token — try a silent refresh via the HttpOnly cookie.
+    // Note: if the refresh succeeds but the profile is gated by a forced
+    // password change, the fresh token stays in tokenStore so the
+    // change-password call can authenticate.
     try {
       const accessToken = await oauth.refreshAccessToken()
       tokenStore.set(accessToken)
@@ -142,6 +153,18 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /**
+   * Called after a successful forced/self-service password change. The backend
+   * has revoked all tokens, so drop local state, clear the gate, and route to a
+   * fresh login.
+   */
+  function onPasswordChanged() {
+    clearPasswordChangeRequired()
+    tokenStore.clear()
+    user.value = null
+    router.push({ name: 'Login', query: { changed: '1' } })
+  }
+
   function clearError() { error.value = null }
 
   return {
@@ -157,6 +180,7 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     checkAuth,
     updateProfile,
+    onPasswordChanged,
     clearError,
   }
 })

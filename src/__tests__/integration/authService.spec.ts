@@ -128,3 +128,44 @@ describe('authService — updateProfile()', () => {
     expect(result).toMatchObject({ ...ADMIN_USER, name: 'New Name' })
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('authService — elevate() (step-up)', () => {
+  it('returns a fresh access token for the right password', async () => {
+    tokenStore.set('test-access-token')
+
+    const token = await authService.elevate('correct-password')
+
+    expect(token).toBe('elevated-access-token')
+  })
+
+  it('forwards the mfa_code and rejects 401 for a wrong password', async () => {
+    await expect(
+      authService.elevate('wrong-password', '123456'),
+    ).rejects.toMatchObject({ response: { status: 401, data: { error: 'invalid credentials' } } })
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('authService — changePassword()', () => {
+  it('sends current + new password and resolves on success', async () => {
+    let captured: Record<string, unknown> = {}
+    server.use(
+      http.post(`${BASE}/api/admin/change-password`, async ({ request }) => {
+        captured = await request.json() as Record<string, unknown>
+        return HttpResponse.json({})
+      }),
+    )
+
+    await expect(
+      authService.changePassword('correct-password', 'NewP@ss1234567890'),
+    ).resolves.toBeUndefined()
+    expect(captured).toEqual({ current_password: 'correct-password', new_password: 'NewP@ss1234567890' })
+  })
+
+  it('rejects 401 when the current password is wrong (no silent-refresh masking)', async () => {
+    await expect(
+      authService.changePassword('wrong-current', 'NewP@ss1234567890'),
+    ).rejects.toMatchObject({ response: { status: 401 } })
+  })
+})

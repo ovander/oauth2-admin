@@ -38,6 +38,17 @@ npm run test:run         # unit + integration tests
 - **Single refresh path** (`src/services/oauth.ts` `refreshAccessToken`): both
   cold-start re-hydration and the 401 interceptor go through one helper, so the
   rotation/replay/DPoP-enforcing backend endpoint is the only refresh route.
+- **Step-up (elevation) for destructive actions** (`src/services/adminGuards.ts`):
+  a `403 elevation_required` from any admin call triggers a re-auth prompt
+  (`ElevationDialog`), and the original request is retried once with the fresh
+  short-lived elevated token. A merely refreshed token is not accepted by the
+  backend — only re-auth clears the gate (ADMIN-SPA-MIGRATION.md §5).
+- **Forced password change** (`src/services/adminGuards.ts`, router guard): a
+  `403 password_change_required` gates every route to the change-password page
+  until the change succeeds; the backend then revokes all tokens and the SPA
+  forces a fresh login (§6). The step-up/change-password/refresh endpoints are
+  excluded from the silent-refresh retry so their `401`/`403` codes are never
+  masked.
 - **Transport security:** `src/utils/secureConfig.ts` throws at startup if the
   API origin is not `https://` in production builds.
 - **CSRF mitigation:** every request carries an `X-Requested-By: oauth2-admin`

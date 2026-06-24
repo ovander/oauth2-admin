@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
+import { passwordChangeRequired } from '@/services/adminGuards'
 
 // Layouts
 import AuthLayout  from '@/layouts/AuthLayout.vue'
@@ -14,6 +15,7 @@ const routes: RouteRecordRaw[] = [
     children:  [
       { path: 'login',          name: 'Login',          component: () => import('@/views/auth/LoginView.vue'),          meta: { title: 'Login' } },
       { path: 'callback',       name: 'AuthCallback',   component: () => import('@/views/auth/CallbackView.vue'),       meta: { title: 'Signing in…', callback: true } },
+      { path: 'change-password',name: 'ChangePassword', component: () => import('@/views/auth/ChangePasswordView.vue'), meta: { title: 'Change Password', passwordChange: true } },
       { path: 'forgot-password',name: 'ForgotPassword', component: () => import('@/views/auth/ForgotPasswordView.vue'), meta: { title: 'Forgot Password' } },
       { path: 'reset-password', name: 'ResetPassword',  component: () => import('@/views/auth/ResetPasswordView.vue'),  meta: { title: 'Reset Password' } },
     ],
@@ -70,9 +72,21 @@ router.beforeEach(async (to, _from, next) => {
     return next()
   }
 
+  // Forced-password-change page is always reachable (it is the only escape from
+  // the password_change_required gate below).
+  if (to.meta.passwordChange) {
+    return next()
+  }
+
   // Re-hydrate auth state on every cold navigation
   if (!authStore.isAuthenticated) {
     await authStore.checkAuth()
+  }
+
+  // Forced password change gates EVERY other route until resolved
+  // (ADMIN-SPA-MIGRATION.md §6).
+  if (passwordChangeRequired.value) {
+    return next({ name: 'ChangePassword' })
   }
 
   // Guest routes: redirect authenticated users to dashboard
