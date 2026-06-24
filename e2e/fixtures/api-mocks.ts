@@ -4,10 +4,17 @@
  * Each helper registers page.route() handlers that intercept real HTTP calls
  * the app makes to localhost:8081 (VITE_ADMIN_API_URL in the test env).
  * No real backend is needed.
+ *
+ * Authentication is an Authorization Code + PKCE flow: the SPA redirects to the
+ * authorization server's hosted login (/oauth/authorize) and exchanges the
+ * returned code at /oauth/token. mockPkceLogin() simulates the hosted login by
+ * intercepting the authorize navigation and bouncing straight back to the SPA
+ * callback with a matching state + code.
  */
 import type { Page, Route } from '@playwright/test'
 
 export const API = 'http://localhost:8081'
+export const APP = 'http://localhost:5174'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 export const SUPER_ADMIN_USER = {
@@ -35,40 +42,33 @@ function json(route: Route, body: unknown, status = 200) {
 
 // ─── Auth flows ───────────────────────────────────────────────────────────────
 
-/** Standard login that returns a full session (no MFA). */
-export async function mockLoginSuccess(page: Page, user = SUPER_ADMIN_USER) {
-  await page.route(`${API}/api/admin/login`, route =>
-    json(route, { access_token: 'e2e-access-token', user }),
+/**
+ * Simulate a full successful Authorization Code + PKCE login:
+ *   • intercept the /oauth/authorize navigation and 302 back to the SPA
+ *     callback, echoing the same `state` the SPA generated + a fake `code`
+ *   • mock the /oauth/token exchange
+ *   • mock the admin profile fetch
+ */
+export async function mockPkceLogin(
+  page: Page,
+  { user = SUPER_ADMIN_USER, accessToken = 'e2e-access-token' } = {},
+) {
+  await page.route(/\/oauth\/authorize/, async route => {
+    const state = new URL(route.request().url()).searchParams.get('state') ?? ''
+    await route.fulfill({
+      status:  302,
+      headers: { location: `${APP}/auth/callback?code=e2e-auth-code&state=${encodeURIComponent(state)}` },
+    })
+  })
+  await page.route(`${API}/oauth/token`, route =>
+    json(route, { access_token: accessToken, token_type: 'Bearer', expires_in: 900 }),
   )
   await mockProfileSuccess(page, user)
-  await mockRefreshFail(page)    // no silent refresh needed for this flow
-}
-
-/** Login that triggers an MFA challenge. */
-export async function mockLoginMfaChallenge(page: Page) {
-  await page.route(`${API}/api/admin/login`, route =>
-    json(route, { requires_mfa: true }),
-  )
-}
-
-/** MFA verification that completes the session. */
-export async function mockMfaVerifySuccess(page: Page, user = SUPER_ADMIN_USER) {
-  await page.route(`${API}/api/admin/mfa/verify`, route =>
-    json(route, { access_token: 'e2e-mfa-token', user }),
-  )
-  await mockProfileSuccess(page, user)
-}
-
-/** Login that returns 401 (wrong credentials). */
-export async function mockLoginFail(page: Page, message = 'Invalid credentials') {
-  await page.route(`${API}/api/admin/login`, route =>
-    json(route, { message }, 401),
-  )
 }
 
 /** Logout — always succeeds. */
 export async function mockLogout(page: Page) {
-  await page.route(`${API}/api/admin/logout`, route => json(route, {}))
+  await page.route(`${API}/api/auth/logout`, route => json(route, {}))
 }
 
 /** Profile — returns the supplied user. */
@@ -83,23 +83,32 @@ export async function mockProfileFail(page: Page) {
   )
 }
 
-/** Refresh — returns 401 (no valid refresh cookie). */
+/** Silent refresh — returns 401 (no valid refresh cookie). */
 export async function mockRefreshFail(page: Page) {
-  await page.route(`${API}/api/admin/refresh`, route =>
+  await page.route(`${API}/api/auth/refresh`, route =>
     json(route, { message: 'No session' }, 401),
   )
 }
 
-/** Refresh — returns a new token. */
-export async function mockRefreshSuccess(page: Page, user = SUPER_ADMIN_USER) {
-  await page.route(`${API}/api/admin/refresh`, route =>
-    json(route, { access_token: 'refreshed-token', user }),
+/** Silent refresh — returns a fresh access token (existing cookie session). */
+export async function mockRefreshSuccess(page: Page, accessToken = 'refreshed-token') {
+  await page.route(`${API}/api/auth/refresh`, route =>
+    json(route, { access_token: accessToken, token_type: 'Bearer', expires_in: 900 }),
   )
 }
 
 /**
+ * Simulate an already-authenticated session re-hydrated from the HttpOnly
+ * refresh cookie on a cold load: refresh → token, profile → user.
+ */
+export async function mockAuthenticatedSession(page: Page, user = SUPER_ADMIN_USER) {
+  await mockRefreshSuccess(page)
+  await mockProfileSuccess(page, user)
+}
+
+/**
  * Complete unauthenticated state:
- *   profile → 401, refresh → 401
+ *   refresh → 401, profile → 401
  * This makes the router guard redirect to /auth/login.
  */
 export async function mockUnauthenticated(page: Page) {
@@ -109,10 +118,10 @@ export async function mockUnauthenticated(page: Page) {
 
 /** Password reset — always succeeds. */
 export async function mockResetPasswordSuccess(page: Page) {
-  await page.route(`${API}/api/admin/reset-password`, route => json(route, {}))
+  await page.route(`${API}/api/auth/reset-password`, route => json(route, {}))
 }
 
 /** Request password reset — always succeeds. */
 export async function mockRequestPasswordResetSuccess(page: Page) {
-  await page.route(`${API}/api/admin/request-password-reset`, route => json(route, {}))
+  await page.route(`${API}/api/auth/request-password-reset`, route => json(route, {}))
 }

@@ -13,7 +13,7 @@ const routes: RouteRecordRaw[] = [
     meta:      { guest: true },
     children:  [
       { path: 'login',          name: 'Login',          component: () => import('@/views/auth/LoginView.vue'),          meta: { title: 'Login' } },
-      { path: 'mfa',            name: 'MfaVerify',      component: () => import('@/views/auth/MfaVerifyView.vue'),      meta: { title: 'Two-Factor Authentication', requiresMfa: true } },
+      { path: 'callback',       name: 'AuthCallback',   component: () => import('@/views/auth/CallbackView.vue'),       meta: { title: 'Signing in…', callback: true } },
       { path: 'forgot-password',name: 'ForgotPassword', component: () => import('@/views/auth/ForgotPasswordView.vue'), meta: { title: 'Forgot Password' } },
       { path: 'reset-password', name: 'ResetPassword',  component: () => import('@/views/auth/ResetPasswordView.vue'),  meta: { title: 'Reset Password' } },
     ],
@@ -64,15 +64,15 @@ router.beforeEach(async (to, _from, next) => {
 
   const authStore = useAuthStore()
 
+  // OAuth callback route: let the view process the authorization code without
+  // any auth/guest redirect interfering with the in-flight exchange.
+  if (to.meta.callback) {
+    return next()
+  }
+
   // Re-hydrate auth state on every cold navigation
   if (!authStore.isAuthenticated) {
     await authStore.checkAuth()
-  }
-
-  // MFA-only route: only accessible when a pending MFA challenge exists
-  if (to.meta.requiresMfa) {
-    if (!authStore.mfaRequired) return next({ name: 'Login' })
-    return next()
   }
 
   // Guest routes: redirect authenticated users to dashboard

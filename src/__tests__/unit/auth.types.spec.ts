@@ -1,20 +1,17 @@
 /**
  * Unit tests for src/types/auth.ts
  *
- * Covers: ROLES constants, normalizeRole(), ADMIN_LOGIN_ERRORS
+ * Covers: ROLES constants, normalizeRole()
  *
  * Security relevance:
  *  F-14 — Role inconsistency: normalizeRole() is the single point that maps
  *          legacy/unknown strings to canonical values. A bug here could grant
  *          a 'viewer' super-admin privileges.
- *  F-05 — MFA: the store keys its login state machine off ADMIN_LOGIN_ERRORS;
- *          these codes must match the backend's `{ "error": ... }` payloads.
  */
 import { describe, it, expect } from 'vitest'
 import {
   ROLES,
   normalizeRole,
-  ADMIN_LOGIN_ERRORS,
 } from '@/types/auth'
 
 // ─── ROLES constants ──────────────────────────────────────────────────────────
@@ -79,24 +76,5 @@ describe('normalizeRole()', () => {
   it('maps injected role string → "viewer"', () => {
     // Ensure SQL injection-style inputs do not match a valid role
     expect(normalizeRole("super_admin'; DROP TABLE users;--")).toBe('viewer')
-  })
-})
-
-// ─── ADMIN_LOGIN_ERRORS ───────────────────────────────────────────────────────
-
-describe('ADMIN_LOGIN_ERRORS', () => {
-  // These strings MUST match the backend's dto.ErrorResponse `error` values
-  // (internal/handler/admin_auth_handler.go). The store's login state machine
-  // branches on them; a drift here silently breaks the MFA flow (F-05).
-  it('matches the backend mfa_required code', () => {
-    expect(ADMIN_LOGIN_ERRORS.MFA_REQUIRED).toBe('mfa_required')
-  })
-
-  it('matches the backend invalid mfa code message', () => {
-    expect(ADMIN_LOGIN_ERRORS.MFA_INVALID_CODE).toBe('invalid mfa code')
-  })
-
-  it('matches the backend mfa_enrollment_required code', () => {
-    expect(ADMIN_LOGIN_ERRORS.MFA_ENROLLMENT_REQUIRED).toBe('mfa_enrollment_required')
   })
 })

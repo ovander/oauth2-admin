@@ -6,11 +6,11 @@
  * server.resetHandlers() in afterEach restores these defaults.
  *
  * These mirror the Socrate backend contract:
- *   • Admin API        — /api/admin/*   (login, profile, sessions, …)
- *   • Public OAuth API — /api/auth/*, /api/profile (refresh, logout,
- *     password reset, profile self-service) — same gateway origin.
- *   • Admin MFA is a stateless re-submit of /api/admin/login with `mfa_code`;
- *     a credentials-only attempt by an MFA admin gets 401 { error: 'mfa_required' }.
+ *   • OAuth API   — /oauth/token (Authorization Code + PKCE exchange + refresh),
+ *     /api/auth/* (refresh, logout), /api/profile — same gateway origin.
+ *   • Admin API   — /api/admin/*   (profile, sessions, …)
+ *   • Login (credentials + MFA) is delegated to the AS hosted login; the SPA
+ *     only exchanges the returned authorization code at /oauth/token.
  */
 import { http, HttpResponse } from 'msw'
 
@@ -36,25 +36,24 @@ export const REFRESH_RESPONSE = {
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 export const handlers = [
-  // POST /api/admin/login ── credentials + optional MFA re-submit
-  http.post(`${BASE}/api/admin/login`, async ({ request }) => {
-    const body = await request.json() as { email: string; password: string; mfa_code?: string }
+  // POST /oauth/token ── Authorization Code + PKCE exchange (and refresh_token grant)
+  http.post(`${BASE}/oauth/token`, async ({ request }) => {
+    const params = new URLSearchParams(await request.text())
+    const grant  = params.get('grant_type')
 
-    // MFA-enabled admin: credentials alone are not enough.
-    if (body.email === 'mfa@example.com') {
-      if (!body.mfa_code) {
-        return HttpResponse.json({ error: 'mfa_required' }, { status: 401 })
+    if (grant === 'authorization_code') {
+      // A valid exchange carries the code + the PKCE verifier.
+      if (params.get('code') && params.get('code_verifier')) {
+        return HttpResponse.json(LOGIN_RESPONSE)
       }
-      if (body.mfa_code === '123456') {
-        return HttpResponse.json({ ...LOGIN_RESPONSE, access_token: 'mfa-access-token' })
-      }
-      return HttpResponse.json({ error: 'invalid mfa code' }, { status: 401 })
+      return HttpResponse.json({ error: 'invalid_grant' }, { status: 400 })
     }
 
-    if (body.email === 'admin@example.com' && body.password === 'correct-password') {
-      return HttpResponse.json(LOGIN_RESPONSE)
+    if (grant === 'refresh_token') {
+      return HttpResponse.json(REFRESH_RESPONSE)
     }
-    return HttpResponse.json({ error: 'invalid credentials' }, { status: 401 })
+
+    return HttpResponse.json({ error: 'unsupported_grant_type' }, { status: 400 })
   }),
 
   // POST /api/auth/logout ── public-API logout, always succeeds

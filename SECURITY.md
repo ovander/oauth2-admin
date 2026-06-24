@@ -25,9 +25,19 @@ npm run test:run         # unit + integration tests
 
 ## Runtime controls (enforced in code)
 
+- **Authorization Code + PKCE login** (`src/services/oauth.ts`): the portal is a
+  first-party **public client** (no secret). Sign-in is delegated to the AS
+  hosted login — the SPA never sees the password or the MFA code. The `state`
+  returned from the AS is verified against a pre-redirect value (CSRF / mix-up
+  protection) and the PKCE `code_verifier` is single-use, held in
+  `sessionStorage` only for the redirect round-trip and cleared on completion.
 - **Access tokens live in memory only** (`src/services/api.ts`) — never written
   to `localStorage`/`sessionStorage`. A page reload intentionally drops the
-  token and re-establishes the session via the HttpOnly refresh cookie.
+  token and re-establishes the session via the **HttpOnly refresh cookie**
+  (rotated server-side; never readable by JS).
+- **Single refresh path** (`src/services/oauth.ts` `refreshAccessToken`): both
+  cold-start re-hydration and the 401 interceptor go through one helper, so the
+  rotation/replay/DPoP-enforcing backend endpoint is the only refresh route.
 - **Transport security:** `src/utils/secureConfig.ts` throws at startup if the
   API origin is not `https://` in production builds.
 - **CSRF mitigation:** every request carries an `X-Requested-By: oauth2-admin`
@@ -35,9 +45,8 @@ npm run test:run         # unit + integration tests
 - **No XSS sinks:** the codebase uses no `v-html`, `innerHTML`, `eval`, or
   `document.write`; the ESLint gate prevents regressions.
 - **Open-redirect protection:** post-login redirects accept only internal,
-  single-leading-slash relative paths (`LoginView`/`MfaVerify` `safeRedirect`).
-- **Admin MFA:** TOTP is enforced server-side; the portal speaks the backend's
-  re-submit protocol and never holds a long-lived MFA token.
+  single-leading-slash relative paths (`LoginView`/`CallbackView`
+  `safeRedirect`/`safeReturn`).
 - **No source maps in production** (`vite.config.ts` `build.sourcemap: false`)
   so application source is not exposed to the browser.
 - **Self-hosted fonts** — no external CDN requests.

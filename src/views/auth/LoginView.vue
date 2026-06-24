@@ -11,75 +11,28 @@
         Socrate Administration
       </h2>
       <p class="mt-2 text-gray-500 dark:text-brand-400">
-        Sign in with your superadmin credentials
+        Sign in securely with your Socrate account
       </p>
     </div>
 
-    <form @submit.prevent="handleSubmit" class="space-y-5">
-      <!-- Email -->
-      <div>
-        <label for="email" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-          Email address
-        </label>
-        <InputText
-          id="email"
-          v-model="form.email"
-          type="email"
-          placeholder="admin@example.com"
-          class="w-full"
-          :class="{ 'p-invalid': errors.email }"
-          :disabled="isLoading"
-          autocomplete="email"
-        />
-        <small v-if="errors.email" class="text-error-600 text-xs mt-1">
-          {{ errors.email }}
-        </small>
-      </div>
+    <!-- Error surfaced from a failed callback (?error=…) or a failed redirect start -->
+    <Message v-if="authStore.error" severity="error" :closable="false" class="w-full mb-5">
+      {{ authStore.error }}
+    </Message>
 
-      <!-- Password -->
-      <div>
-        <div class="flex items-center justify-between mb-1.5">
-          <label for="password" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Password
-          </label>
-          <router-link
-            :to="{ name: 'ForgotPassword' }"
-            class="text-sm text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300"
-          >
-            Forgot password?
-          </router-link>
-        </div>
-        <Password
-          id="password"
-          v-model="form.password"
-          placeholder="••••••••"
-          toggleMask
-          :feedback="false"
-          class="w-full"
-          inputClass="w-full"
-          :class="{ 'p-invalid': errors.password }"
-          :disabled="isLoading"
-          autocomplete="current-password"
-        />
-        <small v-if="errors.password" class="text-error-600 text-xs mt-1">
-          {{ errors.password }}
-        </small>
-      </div>
+    <Button
+      type="button"
+      label="Sign in with Socrate"
+      icon="pi pi-sign-in"
+      class="w-full btn-primary justify-center"
+      :loading="isLoading"
+      @click="handleSignIn"
+    />
 
-      <!-- Error message -->
-      <Message v-if="authStore.error" severity="error" :closable="false" class="w-full">
-        {{ authStore.error }}
-      </Message>
-
-      <!-- Submit -->
-      <Button
-        type="submit"
-        label="Sign in"
-        icon="pi pi-sign-in"
-        class="w-full btn-primary justify-center"
-        :loading="isLoading"
-      />
-    </form>
+    <p class="mt-4 text-center text-xs text-gray-400 dark:text-brand-500">
+      You'll be redirected to the Socrate sign-in page. Multi-factor
+      authentication is handled there.
+    </p>
 
     <div class="relative my-6">
       <div class="absolute inset-0 flex items-center">
@@ -99,68 +52,40 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import InputText from 'primevue/inputtext'
-import Password from 'primevue/password'
+import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import { useAuthStore } from '@/stores/authStore'
 
-const router    = useRouter()
 const route     = useRoute()
 const authStore = useAuthStore()
 
-const form = reactive({ email: '', password: '' })
-const errors = reactive({ email: '', password: '' })
 const isLoading = ref(false)
 
-/** Validate redirect param — only allow internal relative paths (F-04) */
+/** Validate redirect param — only allow internal relative paths (F-04). */
 function safeRedirect(raw: string | undefined | null): string | undefined {
   if (!raw) return undefined
-  // Must start with / but NOT // (which could be protocol-relative)
-  if (/^\/[^/]/.test(raw)) return raw
-  return undefined
+  // Must start with / but NOT // (which could be protocol-relative).
+  return /^\/[^/]/.test(raw) ? raw : undefined
 }
 
-function validate(): boolean {
-  errors.email    = ''
-  errors.password = ''
-
-  if (!form.email) {
-    errors.email = 'Email is required'
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-    errors.email = 'Please enter a valid email'
-  }
-
-  if (!form.password) {
-    errors.password = 'Password is required'
-  }
-
-  return !errors.email && !errors.password
-}
-
-async function handleSubmit() {
-  if (!validate()) return
-
+async function handleSignIn() {
   authStore.clearError()
   isLoading.value = true
-
-  const result = await authStore.login({ email: form.email, password: form.password })
-  isLoading.value = false
-
-  if (result === 'mfa_required') {
-    // Preserve the intended redirect so it survives the MFA step
-    const redirect = safeRedirect(route.query.redirect as string)
-    router.push({ name: 'MfaVerify', query: redirect ? { redirect } : {} })
-    return
-  }
-
-  if (result === 'ok') {
-    const redirect = safeRedirect(route.query.redirect as string)
-    router.push(redirect ?? { name: 'Dashboard' })
+  try {
+    const returnPath = safeRedirect(route.query.redirect as string | undefined)
+    await authStore.loginRedirect(returnPath)
+    // On success the browser navigates away to the AS — nothing more to do.
+  } catch {
+    // loginRedirect already set authStore.error; just re-enable the button.
+    isLoading.value = false
   }
 }
 
-onMounted(() => { authStore.clearError() })
+onMounted(() => {
+  // Preserve a callback error (set on a redirect back to Login); only clear when
+  // arriving fresh without one so a stale error doesn't linger.
+  if (!route.query.error) authStore.clearError()
+})
 </script>

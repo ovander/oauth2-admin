@@ -126,11 +126,12 @@ export default defineConfig(({ mode }) => ({
         'src/utils/secureConfig.ts',
         'src/services/api.ts',
         'src/services/authService.ts',
+        'src/services/oauth.ts',
+        'src/services/pkce.ts',
         'src/stores/authStore.ts',
         'src/composables/useClipboard.ts',
         'src/composables/useSessionTimeout.ts',
         'src/views/auth/LoginView.vue',
-        'src/views/auth/MfaVerifyView.vue',
         'src/views/auth/ResetPasswordView.vue',
       ],
       exclude: [

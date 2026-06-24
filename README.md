@@ -189,10 +189,11 @@ See `.env.example` for detailed documentation.
 This portal connects to **Port 8081** (Admin API) exclusively. All endpoints use the `/api/admin/*` prefix:
 
 ### Authentication (Superadmin only)
-- `POST /api/admin/login` - Superadmin login (email + password)
-- `POST /api/admin/logout` - Session termination
-- `POST /api/admin/refresh` - Token refresh
-- `GET /api/admin/profile` - Current superadmin profile
+- `GET  /oauth/authorize` - Authorization Code + PKCE login (AS hosted login)
+- `POST /oauth/token` - Authorization code → token exchange (PKCE `S256`)
+- `POST /api/auth/refresh` - Silent refresh via the HttpOnly cookie (rotated)
+- `POST /api/auth/logout` - Refresh-token revocation + cookie clear
+- `GET  /api/admin/profile` - Current superadmin profile
 
 ### Application Management
 - `GET /api/admin/apps` - List all applications
@@ -226,13 +227,24 @@ This portal connects to **Port 8081** (Admin API) exclusively. All endpoints use
 
 ## Authentication
 
-The application uses JWT-based authentication with automatic token refresh:
+The portal is a first-party **public client** using **Authorization Code + PKCE**
+(OAuth 2.1). Credentials and MFA are handled by the authorization server's hosted
+login — the SPA never sees them.
 
-1. Login credentials are sent to `/auth/login`
-2. Access and refresh tokens are stored in localStorage
-3. Axios interceptors automatically attach the access token
-4. On 401 responses, the refresh token is used to obtain new tokens
-5. If refresh fails, the user is redirected to login
+1. The user clicks **Sign in**; the SPA generates a PKCE `code_verifier`/`state`
+   (stored in `sessionStorage` for the round-trip) and redirects to
+   `/oauth/authorize` (`response_type=code`, `code_challenge_method=S256`).
+2. After authenticating (incl. MFA) at the AS, the browser is redirected back to
+   `/auth/callback?code=…&state=…`.
+3. The callback verifies `state` (CSRF/mix-up guard) and exchanges the code +
+   `code_verifier` at `/oauth/token`. The **access token is held in memory only**;
+   the **refresh token is set as an HttpOnly cookie** by the backend and is never
+   exposed to JavaScript.
+4. Axios interceptors attach the in-memory access token. On a `401`, a single
+   shared helper silently refreshes via the HttpOnly cookie (`/api/auth/refresh`,
+   rotated server-side) and retries the request.
+5. If refresh fails, the user is redirected to login. A cold page load
+   re-hydrates the session the same way (cookie → access token → profile).
 
 ## Role-Based Access Control
 

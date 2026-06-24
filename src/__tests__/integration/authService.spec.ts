@@ -5,12 +5,14 @@
  * instance — no vi.mock().  MSW intercepts HTTP requests at the network layer.
  *
  * Covered:
- *   login()              — success, MFA re-submit (mfa_required → code), wrong creds
  *   logout()             — swallows server errors (fire-and-forget contract)
  *   getProfile()         — success, bearer token forwarded
  *   resetPassword()      — token sent in request body (not URL) — F-08
  *   requestPasswordReset — happy path
  *   updateProfile()      — partial update merged
+ *
+ * Login itself is an Authorization Code + PKCE flow (services/oauth.ts) and is
+ * covered by oauth.spec.ts and authStore.spec.ts.
  */
 import { describe, it, expect, beforeEach }  from 'vitest'
 import { http, HttpResponse }                from 'msw'
@@ -23,41 +25,6 @@ import { tokenStore }    from '@/services/api'
 // ─────────────────────────────────────────────────────────────────────────────
 beforeEach(() => {
   tokenStore.clear()
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-describe('authService — login()', () => {
-  it('returns the session response on valid credentials', async () => {
-    const result = await authService.login({ email: 'admin@example.com', password: 'correct-password' })
-
-    expect(result).toMatchObject({ access_token: 'test-access-token' })
-  })
-
-  it('rejects with 401 mfa_required when the admin has MFA and sends no code', async () => {
-    await expect(
-      authService.login({ email: 'mfa@example.com', password: 'any' }),
-    ).rejects.toMatchObject({ response: { status: 401, data: { error: 'mfa_required' } } })
-  })
-
-  it('completes login when the same credentials are re-submitted with a valid mfa_code', async () => {
-    const result = await authService.login({
-      email: 'mfa@example.com', password: 'any', mfa_code: '123456',
-    })
-
-    expect(result).toMatchObject({ access_token: 'mfa-access-token' })
-  })
-
-  it('rejects with 401 invalid mfa code for a wrong mfa_code', async () => {
-    await expect(
-      authService.login({ email: 'mfa@example.com', password: 'any', mfa_code: '000000' }),
-    ).rejects.toMatchObject({ response: { status: 401, data: { error: 'invalid mfa code' } } })
-  })
-
-  it('throws an AxiosError (401) for invalid credentials', async () => {
-    await expect(
-      authService.login({ email: 'bad@example.com', password: 'wrong' }),
-    ).rejects.toMatchObject({ response: { status: 401 } })
-  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,32 +1,14 @@
 import api from './api'
-import type {
-  User,
-  LoginRequest,
-  LoginResponse,
-} from '@/types/auth'
+import type { User } from '@/types/auth'
 
-/**
- * Admin login.
- *
- * On success the server returns a {@link LoginResponse}. When the admin has MFA
- * enabled, a credentials-only attempt is rejected with `401 mfa_required`; the
- * caller must re-invoke this function with `mfa_code` set (see the auth store).
- * All non-2xx responses reject with an AxiosError — the store inspects the
- * `error` field to drive the MFA flow.
- */
-export async function login(credentials: LoginRequest): Promise<LoginResponse> {
-  const response = await api.post<LoginResponse>('/api/admin/login', {
-    email:    credentials.email,
-    password: credentials.password,
-    // Only included on the second (MFA) attempt — omitted otherwise.
-    ...(credentials.mfa_code ? { mfa_code: credentials.mfa_code } : {}),
-  })
-  return response.data
-}
+// Admin login is no longer a first-party password request. Authentication is an
+// Authorization Code + PKCE flow delegated to the AS hosted login — see
+// services/oauth.ts and the auth store's loginRedirect()/handleCallback().
 
 export async function logout(): Promise<void> {
-  // The admin API has no logout route; refresh-token revocation lives on the
-  // public auth API. Best-effort — the store always clears client state.
+  // Revoke the refresh token + clear the HttpOnly cookie server-side. The route
+  // lives on the public auth API. Best-effort — the store always clears client
+  // state regardless of the outcome.
   await api.post('/api/auth/logout').catch(() => {/* swallow */})
 }
 
