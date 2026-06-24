@@ -31,17 +31,19 @@ import {
 // safe defaults so local/dev and the test runner work without extra env wiring;
 // production overrides them via .env (see .env.example).
 const CLIENT_ID      = (import.meta.env.VITE_OAUTH_CLIENT_ID    ?? 'oauth2-admin').trim()
-const SCOPES         = (import.meta.env.VITE_OAUTH_SCOPES       ?? 'openid profile admin').trim()
+const SCOPES         = (import.meta.env.VITE_OAUTH_SCOPES       ?? 'openid email profile').trim()
 const REDIRECT_PATH  = (import.meta.env.VITE_OAUTH_REDIRECT_PATH ?? '/auth/callback').trim()
 
 export const AUTHORIZE_ENDPOINT = `${ADMIN_API_URL}/oauth/authorize`
 export const TOKEN_ENDPOINT     = `${ADMIN_API_URL}/oauth/token`
 /**
- * Single source of truth for the admin refresh endpoint. The backend routes
- * this through the canonical rotation + replay + DPoP service; if it is ever
- * re-homed onto `/oauth/token`, only this constant changes.
+ * The admin refresh channel is the hardened `/oauth/token` refresh grant: the
+ * HttpOnly refresh cookie is set AND read there (cookie `Path=/oauth/token`), so
+ * it is the only endpoint the browser will send it to. It enforces rotation +
+ * single-use/replay detection + DPoP. (Confirmed against go-oauth2 v1.1.x and
+ * docs/ADMIN-SPA-MIGRATION.md §3.)
  */
-export const REFRESH_ENDPOINT   = `${ADMIN_API_URL}/api/auth/refresh`
+export const REFRESH_ENDPOINT   = TOKEN_ENDPOINT
 
 /** sessionStorage key holding the transient, single-use PKCE login state. */
 const PKCE_STORAGE_KEY = 'socrate.pkce'
@@ -194,17 +196,24 @@ export async function completeLogin(
  * both cold-start re-hydration (authStore.checkAuth) and the 401 response
  * interceptor (api.ts) — the single source of truth for the refresh contract.
  *
- * The backend reads the refresh token from the cookie (empty body), rotates it,
- * and sets the rotated cookie on the response.
+ * Per docs/ADMIN-SPA-MIGRATION.md §3: POST /oauth/token with
+ * `grant_type=refresh_token&client_id=…`. The refresh token itself is NOT in the
+ * body — the backend reads it from the HttpOnly cookie (sent because
+ * withCredentials is true), rotates it (single-use; replay → family revocation),
+ * and sets the fresh cookie on the response.
  */
 export async function refreshAccessToken(): Promise<string> {
-  const { data } = await axios.post<TokenResponse>(
-    REFRESH_ENDPOINT,
-    {}, // empty body — the refresh token is read from the HttpOnly cookie
-    {
-      withCredentials: true,
-      headers: { 'X-Requested-By': 'oauth2-admin' },
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    client_id:  CLIENT_ID,
+  })
+
+  const { data } = await axios.post<TokenResponse>(REFRESH_ENDPOINT, body, {
+    withCredentials: true,
+    headers: {
+      'Content-Type':   'application/x-www-form-urlencoded',
+      'X-Requested-By': 'oauth2-admin',
     },
-  )
+  })
   return data.access_token
 }

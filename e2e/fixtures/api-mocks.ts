@@ -83,16 +83,19 @@ export async function mockProfileFail(page: Page) {
   )
 }
 
-/** Silent refresh — returns 401 (no valid refresh cookie). */
+/**
+ * Silent refresh fails — the /oauth/token refresh grant returns 400 (no valid
+ * refresh cookie). This is the SPA's only refresh path (cookie Path=/oauth/token).
+ */
 export async function mockRefreshFail(page: Page) {
-  await page.route(`${API}/api/auth/refresh`, route =>
-    json(route, { message: 'No session' }, 401),
+  await page.route(`${API}/oauth/token`, route =>
+    json(route, { error: 'invalid or expired refresh token' }, 400),
   )
 }
 
-/** Silent refresh — returns a fresh access token (existing cookie session). */
+/** Silent refresh — the /oauth/token refresh grant returns a fresh access token. */
 export async function mockRefreshSuccess(page: Page, accessToken = 'refreshed-token') {
-  await page.route(`${API}/api/auth/refresh`, route =>
+  await page.route(`${API}/oauth/token`, route =>
     json(route, { access_token: accessToken, token_type: 'Bearer', expires_in: 900 }),
   )
 }

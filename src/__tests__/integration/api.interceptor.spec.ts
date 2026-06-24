@@ -26,8 +26,9 @@ import router from '@/router/router'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const TEST_URL    = `${BASE}/api/test-resource`
-// The api.ts interceptor refreshes against the public OAuth API endpoint.
-const REFRESH_URL = `${BASE}/api/auth/refresh`
+// The api.ts interceptor refreshes against the hardened /oauth/token refresh
+// grant (cookie Path=/oauth/token) — see docs/ADMIN-SPA-MIGRATION.md §3.
+const REFRESH_URL = `${BASE}/oauth/token`
 
 function ok200()    { return HttpResponse.json({ result: 'ok' }) }
 function auth401()  { return HttpResponse.json({ message: 'Unauthorized' }, { status: 401 }) }
@@ -95,7 +96,7 @@ describe('api.ts — response interceptor: 401 → silent refresh', () => {
     tokenStore.clear()
   })
 
-  it('calls /api/auth/refresh and retries the original request on 401', async () => {
+  it('calls the /oauth/token refresh grant and retries the original request on 401', async () => {
     let callCount   = 0
     let refreshHits = 0
     const capturedTokens: string[] = []

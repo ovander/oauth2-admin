@@ -190,8 +190,7 @@ This portal connects to **Port 8081** (Admin API) exclusively. All endpoints use
 
 ### Authentication (Superadmin only)
 - `GET  /oauth/authorize` - Authorization Code + PKCE login (AS hosted login)
-- `POST /oauth/token` - Authorization code → token exchange (PKCE `S256`)
-- `POST /api/auth/refresh` - Silent refresh via the HttpOnly cookie (rotated)
+- `POST /oauth/token` - Code→token exchange AND silent refresh (`grant_type=refresh_token`); the rotated refresh token rides an HttpOnly cookie scoped to `/oauth/token`
 - `POST /api/auth/logout` - Refresh-token revocation + cookie clear
 - `GET  /api/admin/profile` - Current superadmin profile
 
@@ -241,8 +240,8 @@ login — the SPA never sees them.
    the **refresh token is set as an HttpOnly cookie** by the backend and is never
    exposed to JavaScript.
 4. Axios interceptors attach the in-memory access token. On a `401`, a single
-   shared helper silently refreshes via the HttpOnly cookie (`/api/auth/refresh`,
-   rotated server-side) and retries the request.
+   shared helper silently refreshes via the HttpOnly cookie (`POST /oauth/token`,
+   `grant_type=refresh_token`, rotated server-side) and retries the request.
 5. If refresh fails, the user is redirected to login. A cold page load
    re-hydrates the session the same way (cookie → access token → profile).
 

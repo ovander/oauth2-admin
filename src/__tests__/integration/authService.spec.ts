@@ -55,17 +55,18 @@ describe('authService — getProfile()', () => {
   })
 
   it('throws when no Bearer token is present and the refresh cookie is absent', async () => {
-    // The api interceptor catches the 401 and attempts a silent refresh.
-    // Override the refresh endpoint to simulate no valid refresh cookie,
-    // so the original 401 propagates to the caller.
+    // The api interceptor catches the 401 and attempts a silent refresh against
+    // the /oauth/token refresh grant. Override it to simulate no valid refresh
+    // cookie: the backend answers `400 invalid or expired refresh token`, and
+    // that refresh failure is what propagates to the caller.
     server.use(
-      http.post(`${BASE}/api/auth/refresh`, () =>
-        HttpResponse.json({ error: 'No valid session' }, { status: 401 }),
+      http.post(`${BASE}/oauth/token`, () =>
+        HttpResponse.json({ error: 'invalid or expired refresh token' }, { status: 400 }),
       ),
     )
     // tokenStore already cleared in beforeEach
     await expect(authService.getProfile()).rejects.toMatchObject({
-      response: { status: 401 },
+      response: { status: 400 },
     })
   })
 })

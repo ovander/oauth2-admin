@@ -68,8 +68,8 @@ export const handlers = [
     return HttpResponse.json(ADMIN_USER)
   }),
 
-  // POST /api/auth/refresh ── silent cookie-based refresh (happy-path)
-  http.post(`${BASE}/api/auth/refresh`, () => HttpResponse.json(REFRESH_RESPONSE)),
+  // Note: silent refresh is the /oauth/token `grant_type=refresh_token` branch
+  // above (cookie Path=/oauth/token) — not a separate endpoint.
 
   // POST /api/auth/reset-password
   http.post(`${BASE}/api/auth/reset-password`, async ({ request }) => {
