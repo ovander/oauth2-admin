@@ -1,8 +1,8 @@
-# OAuth2 Superadmin Portal
+# Socrate — Superadmin Portal
 
-A modern, production-ready **Superadmin Portal** for OAuth2 server management built with Vue.js 3, PrimeVue 4, and Tailwind CSS 4.
+A modern, production-ready **Superadmin Portal** for the [Socrate](https://github.com/ovander/go-oauth2) OAuth2 / OpenID Connect platform, built with Vue.js 3, PrimeVue 4, and Tailwind CSS 4.
 
-> ⚠️ **This portal is for Superadmins only.** Superadmins manage the OAuth2 server itself — creating applications, managing global users, and monitoring server-wide security. App Admins should use their application's admin interface.
+> ⚠️ **This portal is for Superadmins only.** Superadmins manage the Socrate OAuth2 server itself — creating applications, managing global users, and monitoring server-wide security. App Admins should use their application's admin interface.
 
 ![OAuth2 Admin](https://img.shields.io/badge/Vue.js-3.5-green)
 ![PrimeVue](https://img.shields.io/badge/PrimeVue-4.2-blue)

@@ -56,11 +56,11 @@ api.interceptors.response.use(
 
     // ── 401 Unauthorized → attempt silent refresh via HttpOnly cookie ──────────
     //
-    // Auth-flow endpoints (login, MFA verify, refresh) return 401 for wrong
-    // credentials / invalid code — NOT for an expired access token.  Passing
-    // them through the refresh dance would swallow the original error message
-    // (e.g. "Invalid credentials") and show "Login failed" instead.
-    const isAuthFlowEndpoint = /\/(login|mfa\/verify|refresh)/.test(original.url ?? '')
+    // Auth-flow endpoints (login — incl. the MFA re-submit — and refresh) return
+    // 401 for wrong credentials / invalid code / mfa_required — NOT for an
+    // expired access token. Passing them through the refresh dance would swallow
+    // the original error (e.g. "mfa_required") and show "Login failed" instead.
+    const isAuthFlowEndpoint = /\/(login|refresh)/.test(original.url ?? '')
 
     if (error.response?.status === 401 && !original._retry && !isAuthFlowEndpoint) {
       if (isRefreshing) {

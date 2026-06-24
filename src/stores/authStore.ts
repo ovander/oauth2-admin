@@ -4,9 +4,19 @@ import { useRouter } from 'vue-router'
 import axios from 'axios'
 import * as authService from '@/services/authService'
 import { tokenStore } from '@/services/api'
-import { isMfaChallenge, normalizeRole } from '@/types/auth'
+import { normalizeRole, ADMIN_LOGIN_ERRORS } from '@/types/auth'
 import { isSuperAdminRole, isAppAdminRole, canManageUsersRole } from '@/utils/roles'
-import type { User, LoginRequest, MfaVerifyRequest, MfaChallengeResponse } from '@/types/auth'
+import type { User, LoginRequest, PendingMfa } from '@/types/auth'
+
+/** Extract the backend's `{ "error": "..." }` code from a failed request. */
+function loginErrorCode(err: unknown): string | undefined {
+  return (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+}
+
+/** Extract a human-readable `{ "message": "..." }` from a failed request. */
+function errorMessage(err: unknown): string | undefined {
+  return (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+}
 
 export const useAuthStore = defineStore('auth', () => {
   const router = useRouter()
@@ -16,8 +26,16 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoading = ref(false)
   const error     = ref<string | null>(null)
 
-  /** Set when the server responds with requires_mfa: true */
-  const pendingMfa = ref<MfaChallengeResponse | null>(null)
+  /** Set after the server replies `mfa_required` to a credentials-only login. */
+  const pendingMfa = ref<PendingMfa | null>(null)
+
+  /**
+   * Credentials retained in memory ONLY between an `mfa_required` response and
+   * a successful second-factor submit. The admin login protocol is a stateless
+   * re-submit (email + password + mfa_code), so the credentials must be
+   * replayed. Never persisted to storage, never exposed by the store.
+   */
+  let pendingCredentials: LoginRequest | null = null
 
   // ─── Getters ──────────────────────────────────────────────────────────────
   const isAuthenticated = computed(() => !!user.value && !!tokenStore.get())
@@ -37,48 +55,73 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // ─── Actions ──────────────────────────────────────────────────────────────
-  async function login(credentials: LoginRequest): Promise<'ok' | 'mfa_required' | 'error'> {
+  async function login(
+    credentials: LoginRequest,
+  ): Promise<'ok' | 'mfa_required' | 'mfa_enrollment_required' | 'error'> {
     isLoading.value = true
     error.value     = null
 
     try {
       const result = await authService.login(credentials)
 
-      if (isMfaChallenge(result)) {
-        pendingMfa.value = result
-        return 'mfa_required'
-      }
-
       // The backend does not return a user object in the login response.
       // Set the token first so the subsequent getProfile() call can authenticate.
       tokenStore.set(result.access_token)
-      pendingMfa.value = null
+      pendingMfa.value   = null
+      pendingCredentials = null
       await _loadProfile()
       return 'ok'
     } catch (err: unknown) {
-      error.value = (err as any)?.response?.data?.message ?? 'Login failed'
+      const code = loginErrorCode(err)
+
+      // MFA enabled: the server accepted the password but needs a TOTP code.
+      // Retain the credentials so verifyMfa() can replay them with the code.
+      if (code === ADMIN_LOGIN_ERRORS.MFA_REQUIRED) {
+        pendingCredentials = { email: credentials.email, password: credentials.password }
+        pendingMfa.value   = { user_email: credentials.email }
+        return 'mfa_required'
+      }
+
+      // Policy requires the admin to enrol MFA before they can sign in.
+      if (code === ADMIN_LOGIN_ERRORS.MFA_ENROLLMENT_REQUIRED) {
+        error.value =
+          'Multi-factor authentication enrolment is required before you can sign in. ' +
+          'Enrol an authenticator app on your account, then sign in again.'
+        return 'mfa_enrollment_required'
+      }
+
+      error.value = errorMessage(err) ?? 'Login failed'
       return 'error'
     } finally {
       isLoading.value = false
     }
   }
 
-  async function verifyMfa(payload: MfaVerifyRequest): Promise<boolean> {
+  /**
+   * Complete an MFA challenge by re-submitting the held credentials together
+   * with the TOTP code. Requires a prior login() that returned 'mfa_required'.
+   */
+  async function verifyMfa(code: string): Promise<boolean> {
+    if (!pendingCredentials) {
+      error.value = 'Your sign-in session expired. Please log in again.'
+      return false
+    }
+
     isLoading.value = true
     error.value     = null
 
     try {
-      const result = await authService.verifyMfa(payload)
-      if (isMfaChallenge(result)) {
-        error.value = 'MFA verification failed'
-        return false
-      }
+      const result = await authService.login({ ...pendingCredentials, mfa_code: code })
       tokenStore.set(result.access_token)
-      pendingMfa.value = null
+      pendingMfa.value   = null
+      pendingCredentials = null
       await _loadProfile()
       return true
     } catch (err: unknown) {
-      error.value = (err as any)?.response?.data?.message ?? 'MFA verification failed'
+      error.value =
+        loginErrorCode(err) === ADMIN_LOGIN_ERRORS.MFA_INVALID_CODE
+          ? 'Invalid code. Please try again.'
+          : errorMessage(err) ?? 'MFA verification failed'
       return false
     } finally {
       isLoading.value = false
@@ -90,8 +133,9 @@ export const useAuthStore = defineStore('auth', () => {
       await authService.logout()
     } finally {
       tokenStore.clear()
-      user.value      = null
-      pendingMfa.value = null
+      user.value         = null
+      pendingMfa.value   = null
+      pendingCredentials = null
       router.push({ name: 'Login' })
     }
   }
@@ -152,7 +196,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function clearError() { error.value = null }
-  function clearMfa()   { pendingMfa.value = null }
+  function clearMfa()   { pendingMfa.value = null; pendingCredentials = null }
 
   return {
     user,

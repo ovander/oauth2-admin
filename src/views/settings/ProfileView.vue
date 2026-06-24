@@ -59,90 +59,33 @@
           </form>
         </div>
 
-        <!-- Change Password -->
+        <!-- Password -->
         <div class="card p-6">
           <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Change Password
+            Password
           </h3>
 
-          <form @submit.prevent="changePassword" class="space-y-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Current Password
-              </label>
-              <Password
-                v-model="passwordForm.current_password"
-                toggleMask
-                :feedback="false"
-                class="w-full"
-                inputClass="w-full"
-                :class="{ 'p-invalid': passwordErrors.current_password }"
-              />
-              <small v-if="passwordErrors.current_password" class="text-error-600 text-xs">
-                {{ passwordErrors.current_password }}
-              </small>
-            </div>
+          <p class="text-sm text-gray-500 dark:text-brand-400 mb-4">
+            For your security, admin passwords are changed through an emailed
+            reset link rather than in-app. We'll send a link to
+            <span class="font-medium text-gray-700 dark:text-gray-300">{{ authStore.user?.email }}</span>.
+          </p>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  New Password
-                </label>
-                <Password
-                  v-model="passwordForm.new_password"
-                  toggleMask
-                  :feedback="true"
-                  class="w-full"
-                  inputClass="w-full"
-                  :class="{ 'p-invalid': passwordErrors.new_password }"
-                />
-                <small v-if="passwordErrors.new_password" class="text-error-600 text-xs">
-                  {{ passwordErrors.new_password }}
-                </small>
-              </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Confirm New Password
-                </label>
-                <Password
-                  v-model="passwordForm.confirm_password"
-                  toggleMask
-                  :feedback="false"
-                  class="w-full"
-                  inputClass="w-full"
-                  :class="{ 'p-invalid': passwordErrors.confirm_password }"
-                />
-                <small v-if="passwordErrors.confirm_password" class="text-error-600 text-xs">
-                  {{ passwordErrors.confirm_password }}
-                </small>
-              </div>
-            </div>
-
-            <div class="flex items-center gap-3 pt-2">
-              <Button
-                type="submit"
-                label="Change Password"
-                icon="pi pi-key"
-                class="btn-primary"
-                :loading="changingPassword"
-              />
-            </div>
-          </form>
+          <Button
+            label="Send password reset link"
+            icon="pi pi-envelope"
+            class="btn-primary"
+            :loading="sendingReset"
+            @click="sendPasswordReset"
+          />
         </div>
 
         <!-- Active Sessions -->
         <div class="card">
-          <div class="px-6 py-4 border-b border-gray-100 dark:border-brand-800 flex items-center justify-between">
+          <div class="px-6 py-4 border-b border-gray-100 dark:border-brand-800">
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
               Active Sessions
             </h3>
-            <Button
-              label="Revoke All"
-              icon="pi pi-ban"
-              class="p-button-outlined p-button-danger p-button-sm"
-              @click="confirmRevokeAll"
-            />
           </div>
 
           <div class="divide-y divide-gray-100 dark:divide-brand-800">
@@ -180,14 +123,6 @@
                   </p>
                 </div>
               </div>
-
-              <Button
-                v-if="!session.is_current"
-                icon="pi pi-times"
-                class="p-button-text p-button-danger p-button-sm"
-                v-tooltip.top="'Revoke'"
-                @click="revokeSession(session.id)"
-              />
             </div>
 
             <div v-if="sessions.length === 0" class="px-6 py-12 text-center">
@@ -273,13 +208,11 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import InputText from 'primevue/inputtext'
-import Password from 'primevue/password'
 import Button from 'primevue/button'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/composables/useToast'
-import { useConfirmDialog } from '@/composables/useConfirm'
 import * as authService from '@/services/authService'
 import { formatDate, formatRelativeTime } from '@/utils/formatDate'
 import { roleLabel } from '@/utils/roles'
@@ -287,11 +220,10 @@ import type { Session } from '@/types/auth'
 
 const authStore = useAuthStore()
 const toast = useToast()
-const { confirmDanger } = useConfirmDialog()
 
 // State
 const savingProfile = ref(false)
-const changingPassword = ref(false)
+const sendingReset = ref(false)
 const sessions = ref<Session[]>([])
 
 // Forms
@@ -303,18 +235,6 @@ const profileForm = reactive({
 const profileErrors = reactive({
   name: '',
   email: ''
-})
-
-const passwordForm = reactive({
-  current_password: '',
-  new_password: '',
-  confirm_password: ''
-})
-
-const passwordErrors = reactive({
-  current_password: '',
-  new_password: '',
-  confirm_password: ''
 })
 
 // Computed
@@ -357,49 +277,22 @@ async function updateProfile() {
   }
 }
 
-async function changePassword() {
-  passwordErrors.current_password = ''
-  passwordErrors.new_password = ''
-  passwordErrors.confirm_password = ''
-
-  if (!passwordForm.current_password) {
-    passwordErrors.current_password = 'Current password is required'
+async function sendPasswordReset() {
+  const email = authStore.user?.email
+  if (!email) {
+    toast.error('No email on file for your account')
     return
   }
 
-  if (!passwordForm.new_password) {
-    passwordErrors.new_password = 'New password is required'
-    return
-  }
-
-  if (passwordForm.new_password.length < 16) {
-    passwordErrors.new_password = 'Admin passwords must be at least 16 characters'
-    return
-  }
-
-  if (passwordForm.new_password !== passwordForm.confirm_password) {
-    passwordErrors.confirm_password = 'Passwords do not match'
-    return
-  }
-
-  changingPassword.value = true
-
+  sendingReset.value = true
   try {
-    await authService.changePassword({
-      current_password: passwordForm.current_password,
-      new_password: passwordForm.new_password,
-      confirm_password: passwordForm.confirm_password
-    })
-
-    passwordForm.current_password = ''
-    passwordForm.new_password = ''
-    passwordForm.confirm_password = ''
-
-    toast.success('Password changed successfully')
-  } catch (error: any) {
-    toast.error('Failed to change password', error.response?.data?.message)
+    await authService.requestPasswordReset(email)
+    toast.success('Password reset link sent', `Check ${email} for the link.`)
+  } catch {
+    // Avoid leaking whether the address exists — report success-shaped feedback.
+    toast.success('Password reset link sent', `If ${email} is registered, a link is on its way.`)
   } finally {
-    changingPassword.value = false
+    sendingReset.value = false
   }
 }
 
@@ -410,33 +303,6 @@ async function loadSessions() {
     sessions.value = []
     toast.error('Unable to load active sessions')
   }
-}
-
-async function revokeSession(sessionId: string) {
-  try {
-    await authService.revokeSession(sessionId)
-    sessions.value = sessions.value.filter(s => s.id !== sessionId)
-    toast.success('Session revoked')
-  } catch {
-    toast.error('Failed to revoke session')
-  }
-}
-
-function confirmRevokeAll() {
-  confirmDanger({
-    message: 'This will log you out of all other devices. Continue?',
-    header: 'Revoke All Sessions',
-    acceptLabel: 'Revoke All',
-    onConfirm: async () => {
-      try {
-        await authService.revokeAllSessions()
-        loadSessions()
-        toast.success('All other sessions revoked')
-      } catch {
-        toast.error('Failed to revoke sessions')
-      }
-    }
-  })
 }
 
 function getDeviceIcon(userAgent: string): string {

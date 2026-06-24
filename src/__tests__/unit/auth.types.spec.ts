@@ -1,22 +1,20 @@
 /**
  * Unit tests for src/types/auth.ts
  *
- * Covers: ROLES constants, normalizeRole(), isMfaChallenge()
+ * Covers: ROLES constants, normalizeRole(), ADMIN_LOGIN_ERRORS
  *
  * Security relevance:
  *  F-14 — Role inconsistency: normalizeRole() is the single point that maps
  *          legacy/unknown strings to canonical values. A bug here could grant
  *          a 'viewer' super-admin privileges.
- *  F-05 — MFA: isMfaChallenge() is the type-guard that decides whether to
- *          demand a second factor. A broken guard bypasses MFA entirely.
+ *  F-05 — MFA: the store keys its login state machine off ADMIN_LOGIN_ERRORS;
+ *          these codes must match the backend's `{ "error": ... }` payloads.
  */
 import { describe, it, expect } from 'vitest'
 import {
   ROLES,
   normalizeRole,
-  isMfaChallenge,
-  type LoginResponse,
-  type MfaChallengeResponse,
+  ADMIN_LOGIN_ERRORS,
 } from '@/types/auth'
 
 // ─── ROLES constants ──────────────────────────────────────────────────────────
@@ -84,45 +82,21 @@ describe('normalizeRole()', () => {
   })
 })
 
-// ─── isMfaChallenge ───────────────────────────────────────────────────────────
+// ─── ADMIN_LOGIN_ERRORS ───────────────────────────────────────────────────────
 
-describe('isMfaChallenge()', () => {
-  const mfaResponse: MfaChallengeResponse = {
-    requires_mfa: true,
-    mfa_token:    'short-lived-server-token',
-    mfa_type:     'totp',
-    user_email:   'admin@example.com',
-  }
-
-  const loginResponse: LoginResponse = {
-    access_token: 'eyJhbGciOiJSUzI1NiJ9.test',
-    token_type:   'Bearer',
-    expires_in:   900,
-  }
-
-  it('returns true for a genuine MFA challenge response', () => {
-    expect(isMfaChallenge(mfaResponse)).toBe(true)
+describe('ADMIN_LOGIN_ERRORS', () => {
+  // These strings MUST match the backend's dto.ErrorResponse `error` values
+  // (internal/handler/admin_auth_handler.go). The store's login state machine
+  // branches on them; a drift here silently breaks the MFA flow (F-05).
+  it('matches the backend mfa_required code', () => {
+    expect(ADMIN_LOGIN_ERRORS.MFA_REQUIRED).toBe('mfa_required')
   })
 
-  it('returns false for a full login response (no second factor required)', () => {
-    expect(isMfaChallenge(loginResponse)).toBe(false)
+  it('matches the backend invalid mfa code message', () => {
+    expect(ADMIN_LOGIN_ERRORS.MFA_INVALID_CODE).toBe('invalid mfa code')
   })
 
-  it('returns false when requires_mfa is absent', () => {
-    const partial = { access_token: 'at', token_type: 'Bearer', expires_in: 900 }
-    expect(isMfaChallenge(partial)).toBe(false)
-  })
-
-  it('returns false when requires_mfa is false (explicit)', () => {
-    // Backend explicitly says no MFA needed
-    const noMfa = { requires_mfa: false } as unknown as LoginResponse
-    expect(isMfaChallenge(noMfa)).toBe(false)
-  })
-
-  it('returns false when requires_mfa is a truthy non-boolean (defensive)', () => {
-    // Guard must be strict — only `true` qualifies
-    const suspicious = { requires_mfa: 1 } as unknown as MfaChallengeResponse
-    // The implementation checks === true, so this should be false
-    expect(isMfaChallenge(suspicious)).toBe(false)
+  it('matches the backend mfa_enrollment_required code', () => {
+    expect(ADMIN_LOGIN_ERRORS.MFA_ENROLLMENT_REQUIRED).toBe('mfa_enrollment_required')
   })
 })

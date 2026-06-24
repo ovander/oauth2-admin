@@ -2,8 +2,8 @@
  * Tests for src/stores/authStore.ts
  *
  * Covers the full login state machine:
- *   login() → 'ok' | 'mfa_required' | 'error'
- *   verifyMfa() → true | false
+ *   login() → 'ok' | 'mfa_required' | 'mfa_enrollment_required' | 'error'
+ *   verifyMfa() → true | false   (re-submits held credentials + TOTP code)
  *   logout()
  *   checkAuth()
  *   role-derived computed properties
@@ -19,7 +19,7 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useAuthStore } from '@/stores/authStore'
 import { tokenStore } from '@/services/api'
 import * as authService from '@/services/authService'
-import type { LoginResponse, MfaChallengeResponse, User } from '@/types/auth'
+import type { LoginResponse, User } from '@/types/auth'
 
 // ─── Mock vue-router — spread actual exports so createRouter/createWebHistory
 //     remain available for router.ts (loaded transitively via api.ts → router).
@@ -55,11 +55,9 @@ const mockLoginResponse: LoginResponse = {
   expires_in:   900,
 }
 
-const mockMfaChallenge: MfaChallengeResponse = {
-  requires_mfa: true,
-  mfa_token:    'mfa-server-session-token',
-  mfa_type:     'totp',
-  user_email:   'admin@example.com',
+/** Build an AxiosError-shaped rejection carrying the backend's `error` code. */
+function loginError(status: number, code: string) {
+  return { response: { status, data: { error: code } } }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -87,18 +85,29 @@ describe('authStore.login()', () => {
     expect(tokenStore.get()).toBe(mockLoginResponse.access_token)
   })
 
-  it('returns "mfa_required" and stores pending challenge when backend demands MFA', async () => {
-    vi.mocked(authService.login).mockResolvedValueOnce(mockMfaChallenge)
+  it('returns "mfa_required" and records pending state when backend demands MFA', async () => {
+    vi.mocked(authService.login).mockRejectedValueOnce(loginError(401, 'mfa_required'))
     const store = buildStore()
 
     const result = await store.login({ email: 'admin@example.com', password: 'pass' })
 
     expect(result).toBe('mfa_required')
     expect(store.mfaRequired).toBe(true)
-    expect(store.pendingMfa).toEqual(mockMfaChallenge)
+    expect(store.pendingMfa).toEqual({ user_email: 'admin@example.com' })
     // Must NOT be authenticated yet — MFA not completed
     expect(store.isAuthenticated).toBe(false)
     expect(tokenStore.get()).toBeNull()
+  })
+
+  it('returns "mfa_enrollment_required" and sets an explanatory error', async () => {
+    vi.mocked(authService.login).mockRejectedValueOnce(loginError(403, 'mfa_enrollment_required'))
+    const store = buildStore()
+
+    const result = await store.login({ email: 'admin@example.com', password: 'pass' })
+
+    expect(result).toBe('mfa_enrollment_required')
+    expect(store.error).toMatch(/enrol/i)
+    expect(store.isAuthenticated).toBe(false)
   })
 
   it('returns "error" and sets error message on API failure', async () => {
@@ -149,43 +158,62 @@ describe('authStore.login()', () => {
 describe('authStore.verifyMfa()', () => {
   beforeEach(() => { tokenStore.clear() })
 
-  it('returns true, stores token, and clears pendingMfa on success', async () => {
-    vi.mocked(authService.verifyMfa).mockResolvedValueOnce(mockLoginResponse)
-    vi.mocked(authService.getProfile).mockResolvedValueOnce(mockUser)
-    const store = buildStore()
-    // Simulate having gone through the login step first
-    store.pendingMfa = mockMfaChallenge
+  /** Drive the store through login() → 'mfa_required' so credentials are held. */
+  async function enterMfaChallenge(store: ReturnType<typeof buildStore>) {
+    vi.mocked(authService.login).mockRejectedValueOnce(loginError(401, 'mfa_required'))
+    await store.login({ email: 'admin@example.com', password: 'correct-pass' })
+  }
 
-    const ok = await store.verifyMfa({ mfa_token: 'mfa-server-session-token', code: '123456' })
+  it('returns true, stores token, and clears pending state on success', async () => {
+    const store = buildStore()
+    await enterMfaChallenge(store)
+
+    vi.mocked(authService.login).mockResolvedValueOnce({ ...mockLoginResponse, access_token: 'mfa-token' })
+    vi.mocked(authService.getProfile).mockResolvedValueOnce(mockUser)
+
+    const ok = await store.verifyMfa('123456')
 
     expect(ok).toBe(true)
     expect(store.isAuthenticated).toBe(true)
     expect(store.pendingMfa).toBeNull()
-    expect(tokenStore.get()).toBe(mockLoginResponse.access_token)
+    expect(tokenStore.get()).toBe('mfa-token')
   })
 
-  it('returns false and sets error when server returns another MFA challenge', async () => {
-    vi.mocked(authService.verifyMfa).mockResolvedValueOnce(mockMfaChallenge)
+  it('re-submits the held credentials together with the code', async () => {
     const store = buildStore()
-    store.pendingMfa = mockMfaChallenge
+    await enterMfaChallenge(store)
 
-    const ok = await store.verifyMfa({ mfa_token: 'tok', code: '000000' })
+    vi.mocked(authService.login).mockResolvedValueOnce(mockLoginResponse)
+    vi.mocked(authService.getProfile).mockResolvedValueOnce(mockUser)
 
-    expect(ok).toBe(false)
-    expect(store.error).toBe('MFA verification failed')
-    expect(store.isAuthenticated).toBe(false)
-  })
+    await store.verifyMfa('123456')
 
-  it('returns false and sets error on API failure', async () => {
-    vi.mocked(authService.verifyMfa).mockRejectedValueOnce({
-      response: { data: { message: 'Code expired' } },
+    expect(authService.login).toHaveBeenLastCalledWith({
+      email: 'admin@example.com', password: 'correct-pass', mfa_code: '123456',
     })
+  })
+
+  it('returns false without calling the API when there is no pending challenge', async () => {
     const store = buildStore()
 
-    const ok = await store.verifyMfa({ mfa_token: 'tok', code: '999999' })
+    const ok = await store.verifyMfa('123456')
 
     expect(ok).toBe(false)
-    expect(store.error).toBe('Code expired')
+    expect(store.error).toMatch(/expired/i)
+    expect(authService.login).not.toHaveBeenCalled()
+  })
+
+  it('returns false and surfaces "Invalid code" on a wrong code', async () => {
+    const store = buildStore()
+    await enterMfaChallenge(store)
+
+    vi.mocked(authService.login).mockRejectedValueOnce(loginError(401, 'invalid mfa code'))
+
+    const ok = await store.verifyMfa('000000')
+
+    expect(ok).toBe(false)
+    expect(store.error).toMatch(/invalid code/i)
+    expect(store.isAuthenticated).toBe(false)
   })
 })
 
@@ -197,7 +225,7 @@ describe('authStore.logout()', () => {
     const store = buildStore()
     tokenStore.set('existing-token')
     store.user = mockUser
-    store.pendingMfa = mockMfaChallenge
+    store.pendingMfa = { user_email: 'admin@example.com' }
 
     await store.logout()
 
@@ -252,14 +280,14 @@ describe('authStore.checkAuth()', () => {
   })
 
   it('returns false when no in-memory token and refresh cookie fails', async () => {
-    // checkAuth() uses bare axios (not authService) for the refresh call,
+    // checkAuth() uses bare axios (not authService) for the /oauth/token call,
     // so vi.mock('@/services/authService') doesn't cover it.
     // Override the MSW handler to simulate an expired/absent refresh cookie.
     const { server } = await import('../msw/server')
     const { http, HttpResponse } = await import('msw')
     server.use(
-      http.post('https://api.test.example.com/api/auth/refresh', () =>
-        HttpResponse.json({ message: 'No valid refresh session' }, { status: 401 }),
+      http.post('https://api.test.example.com/oauth/token', () =>
+        HttpResponse.json({ error: 'No valid refresh session' }, { status: 401 }),
       ),
     )
 
@@ -332,7 +360,7 @@ describe('authStore helper actions', () => {
 
   it('clearMfa() resets pendingMfa to null', () => {
     const store = buildStore()
-    store.pendingMfa = mockMfaChallenge
+    store.pendingMfa = { user_email: 'admin@example.com' }
     store.clearMfa()
     expect(store.pendingMfa).toBeNull()
     expect(store.mfaRequired).toBe(false)

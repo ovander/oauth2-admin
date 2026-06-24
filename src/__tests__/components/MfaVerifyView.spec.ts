@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 import MfaVerifyView from '@/views/auth/MfaVerifyView.vue'
-import type { MfaChallengeResponse } from '@/types/auth'
+import type { PendingMfa } from '@/types/auth'
 
 const mockPush    = vi.fn()
 const mockReplace = vi.fn()
@@ -25,7 +25,7 @@ const mockVerifyMfa  = vi.fn()
 const mockClearError = vi.fn()
 const mockClearMfa   = vi.fn()
 
-const pendingMfaRef = { value: null as MfaChallengeResponse | null }
+const pendingMfaRef = { value: null as PendingMfa | null }
 
 vi.mock('@/stores/authStore', () => ({
   useAuthStore: () => ({
@@ -37,14 +37,11 @@ vi.mock('@/stores/authStore', () => ({
   }),
 }))
 
-const mockChallenge: MfaChallengeResponse = {
-  requires_mfa: true,
-  mfa_token:    'server-session-token',
-  mfa_type:     'totp',
-  user_email:   'admin@example.com',
+const mockChallenge: PendingMfa = {
+  user_email: 'admin@example.com',
 }
 
-function mountMfa(pendingMfa: MfaChallengeResponse | null = mockChallenge, query = {}) {
+function mountMfa(pendingMfa: PendingMfa | null = mockChallenge, query = {}) {
   pendingMfaRef.value = pendingMfa
   mockRoute.query     = query
   setActivePinia(createPinia())

@@ -12,11 +12,11 @@
         <!-- Logo -->
         <div class="flex flex-col h-16 px-6 py-3 border-b border-gray-200 dark:border-brand-800">
           <div class="flex items-center gap-3">
-            <div class="w-9 h-9 gradient-brand rounded-lg flex items-center justify-center">
-              <i class="pi pi-shield text-white"></i>
+            <div class="w-9 h-9 gradient-brand rounded-lg flex items-center justify-center overflow-hidden">
+              <img src="/socrate-logo.png" alt="Socrate" class="w-full h-full object-contain" />
             </div>
             <div>
-              <span class="text-lg font-bold text-gray-900 dark:text-white">OAuth2 Server</span>
+              <span class="text-lg font-bold text-gray-900 dark:text-white">Socrate</span>
             </div>
           </div>
           <span class="text-[10px] font-semibold text-brand-600 dark:text-brand-400 uppercase tracking-widest ml-12">

@@ -11,10 +11,10 @@
       <div class="relative z-10 flex flex-col justify-center px-12 xl:px-20">
         <!-- Logo -->
         <div class="flex items-center gap-3 mb-2">
-          <div class="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center">
-            <i class="pi pi-shield text-2xl text-white"></i>
+          <div class="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center overflow-hidden">
+            <img src="/socrate-logo.png" alt="Socrate" class="w-full h-full object-contain p-1" />
           </div>
-          <span class="text-2xl font-bold text-white">OAuth2 Server</span>
+          <span class="text-2xl font-bold text-white">Socrate</span>
         </div>
         <span class="text-xs font-semibold text-brand-300 uppercase tracking-widest mb-10 ml-15">
           Superadmin Portal

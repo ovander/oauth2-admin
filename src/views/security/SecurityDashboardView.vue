@@ -11,12 +11,6 @@
           class="btn-secondary"
           @click="$router.push({ name: 'SecurityEvents' })"
         />
-        <Button
-          label="Export Report"
-          icon="pi pi-download"
-          class="btn-primary"
-          @click="exportReport"
-        />
       </template>
     </PageHeader>
 
@@ -124,14 +118,6 @@
             <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4">Quick Actions</h3>
             <div class="space-y-2">
               <Button
-                label="Revoke All Sessions"
-                icon="pi pi-ban"
-                class="w-full p-button-outlined p-button-danger"
-                :loading="revokingAllSessions"
-                :disabled="revokingAllSessions"
-                @click="confirmRevokeAllSessions"
-              />
-              <Button
                 label="View Locked Accounts"
                 icon="pi pi-lock"
                 class="w-full p-button-outlined"
@@ -152,24 +138,17 @@ import PageHeader  from '@/components/ui/PageHeader.vue'
 import LoadingState from '@/components/ui/LoadingState.vue'
 import StatCard    from '@/components/dashboard/StatCard.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { useToast } from '@/composables/useToast'
-import { useConfirmDialog } from '@/composables/useConfirm'
 import * as securityService from '@/services/securityService'
 import * as settingsService from '@/services/settingsService'
-import * as authService from '@/services/authService'
 import { formatRelativeTime } from '@/utils/formatDate'
 import { deverror } from '@/utils/devlog'
 import type { SecurityEvent, ThreatMetricsResponse } from '@/types/security'
-
-const toast   = useToast()
-const { confirmDanger } = useConfirmDialog()
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const loading             = ref(true)
 const loadError           = ref<string | null>(null)
 const stats               = ref<ThreatMetricsResponse | null>(null)
 const recentEvents        = ref<SecurityEvent[]>([])
-const revokingAllSessions = ref(false)
 
 // Checklist (F-18) — driven by GET /api/admin/settings/config
 const checklistLoading = ref(false)
@@ -216,46 +195,6 @@ async function loadChecklist() {
     checklistError.value = true
   } finally {
     checklistLoading.value = false
-  }
-}
-
-// ─── Actions ──────────────────────────────────────────────────────────────────
-async function exportReport() {
-  try {
-    const blob = await securityService.exportSecurityLogs()
-    const url  = window.URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href     = url
-    a.download = `security-report-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
-    toast.success('Report downloaded')
-  } catch {
-    toast.error('Failed to export report')
-  }
-}
-
-function confirmRevokeAllSessions() {
-  confirmDanger({
-    message:     'This will immediately log out ALL users from ALL applications. This action cannot be undone. Are you sure?',
-    header:      'Revoke All Sessions',
-    acceptLabel: 'Revoke All Sessions',
-    onConfirm:   revokeAllSessions,
-  })
-}
-
-async function revokeAllSessions() {
-  revokingAllSessions.value = true
-  try {
-    await authService.revokeAllSessions()        // Real API call (F-03)
-    toast.success('All sessions have been revoked. Users will need to re-authenticate.')
-    // Refresh stats to reflect updated session count
-    await loadSecurityData()
-  } catch (err) {
-    deverror('Failed to revoke all sessions', err)
-    toast.error('Failed to revoke sessions. Please try again or contact your system administrator.')
-  } finally {
-    revokingAllSessions.value = false
   }
 }
 

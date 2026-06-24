@@ -18,7 +18,9 @@ dist-ssr/
 vite.config.*.timestamp-*
 
 # ---- Logs ----
-logs/
+# Root-level runtime log output only — must not match source dirs like
+# src/views/logs/ (the Audit Logs view lives there).
+/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*

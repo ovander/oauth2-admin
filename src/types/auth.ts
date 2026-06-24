@@ -37,6 +37,11 @@ export interface User {
 export interface LoginRequest {
   email: string
   password: string
+  /**
+   * TOTP code. Only sent on the SECOND login attempt, after the server has
+   * replied `mfa_required` to a credentials-only attempt (see PendingMfa).
+   */
+  mfa_code?: string
 }
 
 /** Normal fully-authenticated response */
@@ -54,35 +59,35 @@ export interface LoginResponse {
   must_change_password?: boolean
 }
 
-/** MFA challenge response — returned when a second factor is required */
-export interface MfaChallengeResponse {
-  requires_mfa: true
-  mfa_token: string          // short-lived, server-side session token
-  mfa_type: 'totp' | 'webauthn'
+/**
+ * Socrate admin MFA model.
+ *
+ * The admin API (port 8081) has NO separate MFA-verify endpoint. When an admin
+ * with MFA enabled posts valid credentials to `POST /api/admin/login`, the
+ * server replies `401 { error: "mfa_required" }`. The client then RE-SUBMITS
+ * the same login request with an additional `mfa_code` field. A wrong code
+ * yields `401 { error: "invalid mfa code" }`; a policy that mandates enrolment
+ * yields `403 { error: "mfa_enrollment_required" }`.
+ *
+ * Because the protocol is a stateless re-submit, there is no server-issued
+ * token to carry between the two steps — the credentials themselves are
+ * replayed. The auth store holds them in memory for the duration of the
+ * challenge only.
+ */
+export const ADMIN_LOGIN_ERRORS = {
+  MFA_REQUIRED:            'mfa_required',
+  MFA_INVALID_CODE:        'invalid mfa code',
+  MFA_ENROLLMENT_REQUIRED: 'mfa_enrollment_required',
+} as const
+
+/** Pending second-factor state, set after the server replies `mfa_required`. */
+export interface PendingMfa {
   user_email: string
-}
-
-export type LoginResult = LoginResponse | MfaChallengeResponse
-
-/** Type guard */
-export function isMfaChallenge(r: LoginResult): r is MfaChallengeResponse {
-  return (r as MfaChallengeResponse).requires_mfa === true
-}
-
-export interface MfaVerifyRequest {
-  mfa_token: string
-  code: string
 }
 
 export interface AuthState {
   user: User | null
   isAuthenticated: boolean
-}
-
-export interface ChangePasswordRequest {
-  current_password: string
-  new_password: string
-  confirm_password: string
 }
 
 export interface Session {

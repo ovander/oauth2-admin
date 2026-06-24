@@ -5,8 +5,7 @@
  * instance — no vi.mock().  MSW intercepts HTTP requests at the network layer.
  *
  * Covered:
- *   login()              — success, MFA challenge, wrong credentials
- *   verifyMfa()          — success, wrong code
+ *   login()              — success, MFA re-submit (mfa_required → code), wrong creds
  *   logout()             — swallows server errors (fire-and-forget contract)
  *   getProfile()         — success, bearer token forwarded
  *   resetPassword()      — token sent in request body (not URL) — F-08
@@ -28,41 +27,35 @@ beforeEach(() => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe('authService — login()', () => {
-  it('returns the full session response on valid credentials', async () => {
+  it('returns the session response on valid credentials', async () => {
     const result = await authService.login({ email: 'admin@example.com', password: 'correct-password' })
 
-    expect(result).toMatchObject({
-      access_token: 'test-access-token',
-      user: { email: 'admin@example.com', role: 'super_admin' },
-    })
+    expect(result).toMatchObject({ access_token: 'test-access-token' })
   })
 
-  it('returns an MFA challenge when the server responds with requires_mfa: true', async () => {
-    const result = await authService.login({ email: 'mfa@example.com', password: 'any' })
+  it('rejects with 401 mfa_required when the admin has MFA and sends no code', async () => {
+    await expect(
+      authService.login({ email: 'mfa@example.com', password: 'any' }),
+    ).rejects.toMatchObject({ response: { status: 401, data: { error: 'mfa_required' } } })
+  })
 
-    expect(result).toEqual({ requires_mfa: true })
+  it('completes login when the same credentials are re-submitted with a valid mfa_code', async () => {
+    const result = await authService.login({
+      email: 'mfa@example.com', password: 'any', mfa_code: '123456',
+    })
+
+    expect(result).toMatchObject({ access_token: 'mfa-access-token' })
+  })
+
+  it('rejects with 401 invalid mfa code for a wrong mfa_code', async () => {
+    await expect(
+      authService.login({ email: 'mfa@example.com', password: 'any', mfa_code: '000000' }),
+    ).rejects.toMatchObject({ response: { status: 401, data: { error: 'invalid mfa code' } } })
   })
 
   it('throws an AxiosError (401) for invalid credentials', async () => {
     await expect(
       authService.login({ email: 'bad@example.com', password: 'wrong' }),
-    ).rejects.toMatchObject({ response: { status: 401 } })
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-describe('authService — verifyMfa()', () => {
-  it('returns the full session response for the correct MFA code', async () => {
-    const result = await authService.verifyMfa({ mfa_token: 'mfa-server-session-token', code: '123456' })
-
-    expect(result).toMatchObject({
-      access_token: 'mfa-access-token',
-    })
-  })
-
-  it('throws an AxiosError (401) for a wrong MFA code', async () => {
-    await expect(
-      authService.verifyMfa({ mfa_token: 'mfa-server-session-token', code: '000000' }),
     ).rejects.toMatchObject({ response: { status: 401 } })
   })
 })
@@ -75,8 +68,8 @@ describe('authService — logout()', () => {
 
   it('swallows a 500 error — fire-and-forget contract', async () => {
     server.use(
-      http.post(`${BASE}/api/admin/logout`, () =>
-        HttpResponse.json({ message: 'Internal server error' }, { status: 500 }),
+      http.post(`${BASE}/api/auth/logout`, () =>
+        HttpResponse.json({ error: 'Internal server error' }, { status: 500 }),
       ),
     )
     // Must NOT throw — authStore always clears local state regardless
@@ -99,8 +92,8 @@ describe('authService — getProfile()', () => {
     // Override the refresh endpoint to simulate no valid refresh cookie,
     // so the original 401 propagates to the caller.
     server.use(
-      http.post(`${BASE}/api/admin/refresh`, () =>
-        HttpResponse.json({ message: 'No valid session' }, { status: 401 }),
+      http.post(`${BASE}/api/auth/refresh`, () =>
+        HttpResponse.json({ error: 'No valid session' }, { status: 401 }),
       ),
     )
     // tokenStore already cleared in beforeEach
@@ -117,7 +110,7 @@ describe('authService — resetPassword() — F-08 token-in-body', () => {
     let capturedUrl  = ''
 
     server.use(
-      http.post(`${BASE}/api/admin/reset-password`, async ({ request }) => {
+      http.post(`${BASE}/api/auth/reset-password`, async ({ request }) => {
         capturedUrl  = request.url
         capturedBody = await request.json() as Record<string, unknown>
         return HttpResponse.json({})
@@ -136,8 +129,8 @@ describe('authService — resetPassword() — F-08 token-in-body', () => {
 
   it('throws 400 when the body is missing required fields', async () => {
     server.use(
-      http.post(`${BASE}/api/admin/reset-password`, () =>
-        HttpResponse.json({ message: 'token and password are required' }, { status: 400 }),
+      http.post(`${BASE}/api/auth/reset-password`, () =>
+        HttpResponse.json({ error: 'token and password are required' }, { status: 400 }),
       ),
     )
 

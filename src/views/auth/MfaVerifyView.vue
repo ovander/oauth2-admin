@@ -108,10 +108,7 @@ async function handleSubmit() {
   authStore.clearError()
   isLoading.value = true
 
-  const success = await authStore.verifyMfa({
-    mfa_token: authStore.pendingMfa.mfa_token,
-    code:      code.value,
-  })
+  const success = await authStore.verifyMfa(code.value)
 
   isLoading.value = false
 

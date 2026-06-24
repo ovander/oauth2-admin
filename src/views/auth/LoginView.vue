@@ -8,7 +8,7 @@
         </span>
       </div>
       <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
-        OAuth2 Server Administration
+        Socrate Administration
       </h2>
       <p class="mt-2 text-gray-500 dark:text-brand-400">
         Sign in with your superadmin credentials
