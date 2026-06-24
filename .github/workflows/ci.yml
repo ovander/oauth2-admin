@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# Cancel in-progress runs for the same branch to save runner minutes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 1 — Lint + TypeScript check + build
+  # ──────────────────────────────────────────────────────────────────────────
+  lint-build:
+    name: Lint, type-check & build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: TypeScript type-check
+        run: npx vue-tsc --noEmit
+
+      - name: Build (production)
+        run: npm run build
+        env:
+          VITE_ADMIN_API_URL: https://api.example.com   # placeholder — real value injected at deploy time
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 2 — Unit + integration tests with coverage gate
+  # ──────────────────────────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit & integration tests (Vitest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        run: npm run coverage
+        env:
+          VITE_ADMIN_API_URL: https://api.test.example.com
+        # Fails the job if any coverage threshold is not met (configured in vite.config.ts)
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-coverage
+          path: /tmp/oauth2-coverage
+          retention-days: 14
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 3 — Playwright E2E tests
+  # ──────────────────────────────────────────────────────────────────────────
+  e2e-tests:
+    name: E2E tests (Playwright)
+    runs-on: ubuntu-latest
+    # E2E tests only run on PRs and pushes to main/develop (same trigger as the
+    # workflow), but we wait for the fast jobs to pass first to give faster
+    # feedback on lint/type errors.
+    needs: [lint-build, unit-tests]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: npx playwright test
+        env:
+          CI: true
+          VITE_ADMIN_API_URL: http://localhost:8081
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 14
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 4 — Dependency security audit
+  # ──────────────────────────────────────────────────────────────────────────
+  security-audit:
+    name: npm audit (high + critical)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit for high/critical vulnerabilities
+        run: npm audit --audit-level=high
+        # Non-zero exit code fails the job and blocks the PR merge

@@ -1,0 +1,475 @@
+<template>
+  <div>
+    <PageHeader
+      title="My Profile"
+      subtitle="Manage your account settings and security"
+      :breadcrumbs="[{ label: 'Settings', to: { name: 'Settings' } }]"
+    />
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- Main Content -->
+      <div class="lg:col-span-2 space-y-6">
+        <!-- Profile Info -->
+        <div class="card p-6">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            Profile Information
+          </h3>
+
+          <form @submit.prevent="updateProfile" class="space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Full Name
+                </label>
+                <InputText
+                  v-model="profileForm.name"
+                  class="w-full"
+                  :class="{ 'p-invalid': profileErrors.name }"
+                />
+                <small v-if="profileErrors.name" class="text-error-600 text-xs">
+                  {{ profileErrors.name }}
+                </small>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Email Address
+                </label>
+                <InputText
+                  v-model="profileForm.email"
+                  type="email"
+                  class="w-full"
+                  :class="{ 'p-invalid': profileErrors.email }"
+                />
+                <small v-if="profileErrors.email" class="text-error-600 text-xs">
+                  {{ profileErrors.email }}
+                </small>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-3 pt-2">
+              <Button
+                type="submit"
+                label="Save Changes"
+                icon="pi pi-check"
+                class="btn-primary"
+                :loading="savingProfile"
+              />
+            </div>
+          </form>
+        </div>
+
+        <!-- Change Password -->
+        <div class="card p-6">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            Change Password
+          </h3>
+
+          <form @submit.prevent="changePassword" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Current Password
+              </label>
+              <Password
+                v-model="passwordForm.current_password"
+                toggleMask
+                :feedback="false"
+                class="w-full"
+                inputClass="w-full"
+                :class="{ 'p-invalid': passwordErrors.current_password }"
+              />
+              <small v-if="passwordErrors.current_password" class="text-error-600 text-xs">
+                {{ passwordErrors.current_password }}
+              </small>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  New Password
+                </label>
+                <Password
+                  v-model="passwordForm.new_password"
+                  toggleMask
+                  :feedback="true"
+                  class="w-full"
+                  inputClass="w-full"
+                  :class="{ 'p-invalid': passwordErrors.new_password }"
+                />
+                <small v-if="passwordErrors.new_password" class="text-error-600 text-xs">
+                  {{ passwordErrors.new_password }}
+                </small>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Confirm New Password
+                </label>
+                <Password
+                  v-model="passwordForm.confirm_password"
+                  toggleMask
+                  :feedback="false"
+                  class="w-full"
+                  inputClass="w-full"
+                  :class="{ 'p-invalid': passwordErrors.confirm_password }"
+                />
+                <small v-if="passwordErrors.confirm_password" class="text-error-600 text-xs">
+                  {{ passwordErrors.confirm_password }}
+                </small>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-3 pt-2">
+              <Button
+                type="submit"
+                label="Change Password"
+                icon="pi pi-key"
+                class="btn-primary"
+                :loading="changingPassword"
+              />
+            </div>
+          </form>
+        </div>
+
+        <!-- Active Sessions -->
+        <div class="card">
+          <div class="px-6 py-4 border-b border-gray-100 dark:border-brand-800 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+              Active Sessions
+            </h3>
+            <Button
+              label="Revoke All"
+              icon="pi pi-ban"
+              class="p-button-outlined p-button-danger p-button-sm"
+              @click="confirmRevokeAll"
+            />
+          </div>
+
+          <div class="divide-y divide-gray-100 dark:divide-brand-800">
+            <div
+              v-for="session in sessions"
+              :key="session.id"
+              class="px-6 py-4 flex items-center justify-between"
+            >
+              <div class="flex items-center gap-4">
+                <div
+                  class="w-10 h-10 rounded-full flex items-center justify-center"
+                  :class="session.is_current ? 'bg-success-100 dark:bg-success-900/30' : 'bg-gray-100 dark:bg-brand-800'"
+                >
+                  <i
+                    :class="[
+                      'pi text-lg',
+                      getDeviceIcon(session.user_agent),
+                      session.is_current ? 'text-success-600' : 'text-gray-500'
+                    ]"
+                  ></i>
+                </div>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <p class="text-sm font-medium text-gray-900 dark:text-white">
+                      {{ getDeviceName(session.user_agent) }}
+                    </p>
+                    <StatusBadge
+                      v-if="session.is_current"
+                      status="success"
+                      label="Current"
+                    />
+                  </div>
+                  <p class="text-xs text-gray-500 dark:text-brand-400">
+                    {{ session.ip_address }} · Last active {{ formatRelativeTime(session.last_active_at) }}
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                v-if="!session.is_current"
+                icon="pi pi-times"
+                class="p-button-text p-button-danger p-button-sm"
+                v-tooltip.top="'Revoke'"
+                @click="revokeSession(session.id)"
+              />
+            </div>
+
+            <div v-if="sessions.length === 0" class="px-6 py-12 text-center">
+              <p class="text-gray-500 dark:text-brand-400">No active sessions</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sidebar -->
+      <div class="space-y-6">
+        <!-- Account Info -->
+        <div class="card p-6">
+          <div class="text-center">
+            <div class="w-20 h-20 mx-auto bg-brand-100 dark:bg-brand-800 rounded-full flex items-center justify-center mb-4">
+              <span class="text-2xl font-bold text-brand-700 dark:text-brand-300">
+                {{ userInitials }}
+              </span>
+            </div>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ authStore.user?.name }}
+            </h3>
+            <p class="text-sm text-gray-500 dark:text-brand-400">
+              {{ authStore.user?.email }}
+            </p>
+            <StatusBadge
+              class="mt-2"
+              :status="authStore.user?.email_verified ? 'success' : 'warning'"
+              :label="authStore.user?.email_verified ? 'Verified' : 'Pending Verification'"
+            />
+          </div>
+        </div>
+
+        <!-- Role & Access -->
+        <div class="card p-6">
+          <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4">
+            Role & Access
+          </h3>
+
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-gray-500 dark:text-brand-400">Role</span>
+              <StatusBadge
+                :status="getRoleStatus(authStore.user?.role)"
+                :label="formatRole(authStore.user?.role)"
+              />
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-gray-500 dark:text-brand-400">Member Since</span>
+              <span class="text-sm text-gray-900 dark:text-white">
+                {{ formatDate(authStore.user?.created_at) }}
+              </span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-gray-500 dark:text-brand-400">Last Login</span>
+              <span class="text-sm text-gray-900 dark:text-white">
+                {{ formatRelativeTime(authStore.user?.last_login_at) }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Danger Zone -->
+        <div class="card p-6 border-error-200 dark:border-error-900/50">
+          <h3 class="text-base font-semibold text-error-600 dark:text-error-400 mb-4">
+            Danger Zone
+          </h3>
+          <p class="text-sm text-gray-500 dark:text-brand-400 mb-4">
+            Logging out will end your current session.
+          </p>
+          <Button
+            label="Log Out"
+            icon="pi pi-sign-out"
+            class="w-full p-button-outlined p-button-danger"
+            @click="authStore.logout()"
+          />
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, computed, onMounted } from 'vue'
+import InputText from 'primevue/inputtext'
+import Password from 'primevue/password'
+import Button from 'primevue/button'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { useAuthStore } from '@/stores/authStore'
+import { useToast } from '@/composables/useToast'
+import { useConfirmDialog } from '@/composables/useConfirm'
+import * as authService from '@/services/authService'
+import { formatDate, formatRelativeTime } from '@/utils/formatDate'
+import { roleLabel } from '@/utils/roles'
+import type { Session } from '@/types/auth'
+
+const authStore = useAuthStore()
+const toast = useToast()
+const { confirmDanger } = useConfirmDialog()
+
+// State
+const savingProfile = ref(false)
+const changingPassword = ref(false)
+const sessions = ref<Session[]>([])
+
+// Forms
+const profileForm = reactive({
+  name: authStore.user?.name || '',
+  email: authStore.user?.email || ''
+})
+
+const profileErrors = reactive({
+  name: '',
+  email: ''
+})
+
+const passwordForm = reactive({
+  current_password: '',
+  new_password: '',
+  confirm_password: ''
+})
+
+const passwordErrors = reactive({
+  current_password: '',
+  new_password: '',
+  confirm_password: ''
+})
+
+// Computed
+const userInitials = computed(() => {
+  const name = authStore.user?.name || 'A'
+  const parts = name.split(' ')
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+  }
+  return name.substring(0, 2).toUpperCase()
+})
+
+// Methods
+async function updateProfile() {
+  profileErrors.name = ''
+  profileErrors.email = ''
+
+  if (!profileForm.name.trim()) {
+    profileErrors.name = 'Name is required'
+    return
+  }
+
+  if (!profileForm.email.trim()) {
+    profileErrors.email = 'Email is required'
+    return
+  }
+
+  savingProfile.value = true
+
+  try {
+    await authStore.updateProfile({
+      name: profileForm.name,
+      email: profileForm.email
+    })
+    toast.success('Profile updated')
+  } catch (error: any) {
+    toast.error('Failed to update profile', error.response?.data?.message)
+  } finally {
+    savingProfile.value = false
+  }
+}
+
+async function changePassword() {
+  passwordErrors.current_password = ''
+  passwordErrors.new_password = ''
+  passwordErrors.confirm_password = ''
+
+  if (!passwordForm.current_password) {
+    passwordErrors.current_password = 'Current password is required'
+    return
+  }
+
+  if (!passwordForm.new_password) {
+    passwordErrors.new_password = 'New password is required'
+    return
+  }
+
+  if (passwordForm.new_password.length < 16) {
+    passwordErrors.new_password = 'Admin passwords must be at least 16 characters'
+    return
+  }
+
+  if (passwordForm.new_password !== passwordForm.confirm_password) {
+    passwordErrors.confirm_password = 'Passwords do not match'
+    return
+  }
+
+  changingPassword.value = true
+
+  try {
+    await authService.changePassword({
+      current_password: passwordForm.current_password,
+      new_password: passwordForm.new_password,
+      confirm_password: passwordForm.confirm_password
+    })
+
+    passwordForm.current_password = ''
+    passwordForm.new_password = ''
+    passwordForm.confirm_password = ''
+
+    toast.success('Password changed successfully')
+  } catch (error: any) {
+    toast.error('Failed to change password', error.response?.data?.message)
+  } finally {
+    changingPassword.value = false
+  }
+}
+
+async function loadSessions() {
+  try {
+    sessions.value = await authService.getSessions()
+  } catch {
+    sessions.value = []
+    toast.error('Unable to load active sessions')
+  }
+}
+
+async function revokeSession(sessionId: string) {
+  try {
+    await authService.revokeSession(sessionId)
+    sessions.value = sessions.value.filter(s => s.id !== sessionId)
+    toast.success('Session revoked')
+  } catch {
+    toast.error('Failed to revoke session')
+  }
+}
+
+function confirmRevokeAll() {
+  confirmDanger({
+    message: 'This will log you out of all other devices. Continue?',
+    header: 'Revoke All Sessions',
+    acceptLabel: 'Revoke All',
+    onConfirm: async () => {
+      try {
+        await authService.revokeAllSessions()
+        loadSessions()
+        toast.success('All other sessions revoked')
+      } catch {
+        toast.error('Failed to revoke sessions')
+      }
+    }
+  })
+}
+
+function getDeviceIcon(userAgent: string): string {
+  if (userAgent.includes('iPhone') || userAgent.includes('Android')) {
+    return 'pi-mobile'
+  }
+  if (userAgent.includes('iPad') || userAgent.includes('Tablet')) {
+    return 'pi-tablet'
+  }
+  return 'pi-desktop'
+}
+
+function getDeviceName(userAgent: string): string {
+  if (userAgent.includes('Chrome')) return 'Chrome'
+  if (userAgent.includes('Firefox')) return 'Firefox'
+  if (userAgent.includes('Safari')) return 'Safari'
+  if (userAgent.includes('Edge')) return 'Edge'
+  return 'Unknown Browser'
+}
+
+function getRoleStatus(role?: string): 'success' | 'info' | 'warning' {
+  const map: Record<string, 'success' | 'info' | 'warning'> = {
+    super_admin: 'success',
+    app_admin: 'info',
+    app_manager: 'info',
+    viewer: 'warning'
+  }
+  return map[role || ''] || 'info'
+}
+
+function formatRole(role?: string): string {
+  return roleLabel(role)
+}
+
+onMounted(loadSessions)
+</script>

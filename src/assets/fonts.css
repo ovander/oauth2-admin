@@ -1,0 +1,41 @@
+/*
+ * Self-hosted font declarations (F-12)
+ *
+ * Place font files in /public/fonts/ and declare them below.
+ * This file replaces the Google Fonts CDN link that was removed from index.html.
+ *
+ * To generate self-hosted font files from Google Fonts:
+ *   1. Visit https://fonts.google.com/ and select your fonts
+ *   2. Use https://google-webfonts-helper.herokuapp.com/ to download the files
+ *   3. Place the .woff2 files in /public/fonts/
+ *   4. Uncomment and fill in the @font-face blocks below
+ *
+ * Until fonts are self-hosted the app will fall back to system fonts,
+ * which is a safe and performant default for an admin interface.
+ */
+
+/* Example:
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/plus-jakarta-sans.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono.woff2') format('woff2');
+}
+*/
+
+/* System font stack fallback — used until @font-face blocks above are enabled */
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+               'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Consolas,
+               'Liberation Mono', Menlo, monospace;
+}
