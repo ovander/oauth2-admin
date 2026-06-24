@@ -248,7 +248,7 @@ async function loadApps() {
   try {
     const response = await getApps()
     apps.value = response.apps || []
-  } catch (error) {
+  } catch {
     showError('Failed to load applications')
   } finally {
     loading.value = false

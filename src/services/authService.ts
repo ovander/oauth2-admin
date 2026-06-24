@@ -1,30 +1,15 @@
 import api from './api'
-import type {
-  User,
-  LoginRequest,
-  LoginResult,
-  MfaVerifyRequest,
-  ChangePasswordRequest,
-  Session,
-} from '@/types/auth'
+import type { User } from '@/types/auth'
 
-export async function login(credentials: LoginRequest): Promise<LoginResult> {
-  const response = await api.post<LoginResult>('/api/admin/login', {
-    email:    credentials.email,
-    password: credentials.password,
-  })
-  return response.data
-}
-
-/** Verify MFA code and complete login.  Returns full LoginResponse on success. */
-export async function verifyMfa(payload: MfaVerifyRequest): Promise<LoginResult> {
-  const response = await api.post<LoginResult>('/api/admin/mfa/verify', payload)
-  return response.data
-}
+// Admin login is no longer a first-party password request. Authentication is an
+// Authorization Code + PKCE flow delegated to the AS hosted login — see
+// services/oauth.ts and the auth store's loginRedirect()/handleCallback().
 
 export async function logout(): Promise<void> {
-  // Best-effort — always proceed to clear client state even if server call fails
-  await api.post('/api/admin/logout').catch(() => {/* swallow */})
+  // Revoke the refresh token + clear the HttpOnly cookie server-side. The route
+  // lives on the public auth API. Best-effort — the store always clears client
+  // state regardless of the outcome.
+  await api.post('/api/auth/logout').catch(() => {/* swallow */})
 }
 
 export async function getProfile(): Promise<User> {
@@ -33,29 +18,15 @@ export async function getProfile(): Promise<User> {
 }
 
 export async function updateProfile(data: Partial<User>): Promise<User> {
-  const response = await api.put<User>('/api/admin/profile', data)
+  // Profile self-service updates are served by the public profile API
+  // (the admin `/api/admin/profile` route is read-only).
+  const response = await api.put<User>('/api/profile', data)
   return response.data
-}
-
-export async function changePassword(data: ChangePasswordRequest): Promise<void> {
-  await api.post('/api/admin/change-password', data)
-}
-
-export async function getSessions(): Promise<Session[]> {
-  const response = await api.get<Session[]>('/api/admin/sessions')
-  return response.data
-}
-
-export async function revokeSession(sessionId: string): Promise<void> {
-  await api.delete(`/api/admin/sessions/${sessionId}`)
-}
-
-export async function revokeAllSessions(): Promise<void> {
-  await api.delete('/api/admin/sessions')
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {
-  await api.post('/api/admin/request-password-reset', { email })
+  // Password reset is a public-API flow (no admin-side route exists).
+  await api.post('/api/auth/request-password-reset', { email })
 }
 
 /**
@@ -64,5 +35,5 @@ export async function requestPasswordReset(email: string): Promise<void> {
  * request body — it is NEVER forwarded in a query parameter (F-08).
  */
 export async function resetPassword(token: string, password: string): Promise<void> {
-  await api.post('/api/admin/reset-password', { token, password })
+  await api.post('/api/auth/reset-password', { token, password })
 }

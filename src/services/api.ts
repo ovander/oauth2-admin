@@ -1,13 +1,15 @@
 import axios, { type AxiosInstance, type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import router from '@/router/router'
 import { ADMIN_API_URL } from '@/utils/secureConfig'
+import { refreshAccessToken } from '@/services/oauth'
 import { deverror, devwarn } from '@/utils/devlog'
 
 // ─── In-memory token store (F-01) ────────────────────────────────────────────
 // The access token lives only in this module-level variable.
 // It is NEVER written to localStorage, sessionStorage, or any other
 // persistent browser storage.  Losing it on page-reload is intentional;
-// the session is re-established via the HttpOnly refresh-token cookie.
+// the session is re-established via the HttpOnly refresh-token cookie
+// (Authorization Code + PKCE — see services/oauth.ts).
 let _accessToken: string | null = null
 
 export const tokenStore = {
@@ -56,11 +58,13 @@ api.interceptors.response.use(
 
     // ── 401 Unauthorized → attempt silent refresh via HttpOnly cookie ──────────
     //
-    // Auth-flow endpoints (login, MFA verify, refresh) return 401 for wrong
-    // credentials / invalid code — NOT for an expired access token.  Passing
-    // them through the refresh dance would swallow the original error message
-    // (e.g. "Invalid credentials") and show "Login failed" instead.
-    const isAuthFlowEndpoint = /\/(login|mfa\/verify|refresh)/.test(original.url ?? '')
+    // The token exchange and refresh endpoints return 401 for a genuinely
+    // invalid/expired refresh session — NOT for an expired access token.
+    // Re-running the refresh dance on them would mask the original error and
+    // could loop, so they are excluded. (They also use a bare axios instance in
+    // services/oauth.ts, so they never reach this interceptor — this guard is
+    // belt-and-braces.)
+    const isAuthFlowEndpoint = /\/(oauth\/token|auth\/refresh)/.test(original.url ?? '')
 
     if (error.response?.status === 401 && !original._retry && !isAuthFlowEndpoint) {
       if (isRefreshing) {
@@ -76,18 +80,14 @@ api.interceptors.response.use(
       isRefreshing = true
 
       try {
-        // The refresh-token cookie is sent automatically by the browser
-        // because withCredentials: true is set on the instance.
-        const { data } = await axios.post<{ access_token: string }>(
-          `${ADMIN_API_URL}/api/auth/refresh`,
-          {},                      // empty body — token comes from the cookie
-          { withCredentials: true, headers: { 'X-Requested-By': 'oauth2-admin' } },
-        )
+        // Single source of truth for the refresh contract (services/oauth.ts).
+        // The refresh-token cookie is sent automatically by the browser.
+        const accessToken = await refreshAccessToken()
 
-        tokenStore.set(data.access_token)
-        processQueue(null, data.access_token)
+        tokenStore.set(accessToken)
+        processQueue(null, accessToken)
 
-        if (original.headers) original.headers.Authorization = `Bearer ${data.access_token}`
+        if (original.headers) original.headers.Authorization = `Bearer ${accessToken}`
         return api(original)
       } catch (refreshErr) {
         processQueue(refreshErr, null)

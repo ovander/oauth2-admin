@@ -5,13 +5,14 @@
  * instance — no vi.mock().  MSW intercepts HTTP requests at the network layer.
  *
  * Covered:
- *   login()              — success, MFA challenge, wrong credentials
- *   verifyMfa()          — success, wrong code
  *   logout()             — swallows server errors (fire-and-forget contract)
  *   getProfile()         — success, bearer token forwarded
  *   resetPassword()      — token sent in request body (not URL) — F-08
  *   requestPasswordReset — happy path
  *   updateProfile()      — partial update merged
+ *
+ * Login itself is an Authorization Code + PKCE flow (services/oauth.ts) and is
+ * covered by oauth.spec.ts and authStore.spec.ts.
  */
 import { describe, it, expect, beforeEach }  from 'vitest'
 import { http, HttpResponse }                from 'msw'
@@ -27,47 +28,6 @@ beforeEach(() => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-describe('authService — login()', () => {
-  it('returns the full session response on valid credentials', async () => {
-    const result = await authService.login({ email: 'admin@example.com', password: 'correct-password' })
-
-    expect(result).toMatchObject({
-      access_token: 'test-access-token',
-      user: { email: 'admin@example.com', role: 'super_admin' },
-    })
-  })
-
-  it('returns an MFA challenge when the server responds with requires_mfa: true', async () => {
-    const result = await authService.login({ email: 'mfa@example.com', password: 'any' })
-
-    expect(result).toEqual({ requires_mfa: true })
-  })
-
-  it('throws an AxiosError (401) for invalid credentials', async () => {
-    await expect(
-      authService.login({ email: 'bad@example.com', password: 'wrong' }),
-    ).rejects.toMatchObject({ response: { status: 401 } })
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-describe('authService — verifyMfa()', () => {
-  it('returns the full session response for the correct MFA code', async () => {
-    const result = await authService.verifyMfa({ mfa_token: 'mfa-server-session-token', code: '123456' })
-
-    expect(result).toMatchObject({
-      access_token: 'mfa-access-token',
-    })
-  })
-
-  it('throws an AxiosError (401) for a wrong MFA code', async () => {
-    await expect(
-      authService.verifyMfa({ mfa_token: 'mfa-server-session-token', code: '000000' }),
-    ).rejects.toMatchObject({ response: { status: 401 } })
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
 describe('authService — logout()', () => {
   it('resolves without throwing on a 200 response', async () => {
     await expect(authService.logout()).resolves.toBeUndefined()
@@ -75,8 +35,8 @@ describe('authService — logout()', () => {
 
   it('swallows a 500 error — fire-and-forget contract', async () => {
     server.use(
-      http.post(`${BASE}/api/admin/logout`, () =>
-        HttpResponse.json({ message: 'Internal server error' }, { status: 500 }),
+      http.post(`${BASE}/api/auth/logout`, () =>
+        HttpResponse.json({ error: 'Internal server error' }, { status: 500 }),
       ),
     )
     // Must NOT throw — authStore always clears local state regardless
@@ -95,17 +55,18 @@ describe('authService — getProfile()', () => {
   })
 
   it('throws when no Bearer token is present and the refresh cookie is absent', async () => {
-    // The api interceptor catches the 401 and attempts a silent refresh.
-    // Override the refresh endpoint to simulate no valid refresh cookie,
-    // so the original 401 propagates to the caller.
+    // The api interceptor catches the 401 and attempts a silent refresh against
+    // the /oauth/token refresh grant. Override it to simulate no valid refresh
+    // cookie: the backend answers `400 invalid or expired refresh token`, and
+    // that refresh failure is what propagates to the caller.
     server.use(
-      http.post(`${BASE}/api/admin/refresh`, () =>
-        HttpResponse.json({ message: 'No valid session' }, { status: 401 }),
+      http.post(`${BASE}/oauth/token`, () =>
+        HttpResponse.json({ error: 'invalid or expired refresh token' }, { status: 400 }),
       ),
     )
     // tokenStore already cleared in beforeEach
     await expect(authService.getProfile()).rejects.toMatchObject({
-      response: { status: 401 },
+      response: { status: 400 },
     })
   })
 })
@@ -117,7 +78,7 @@ describe('authService — resetPassword() — F-08 token-in-body', () => {
     let capturedUrl  = ''
 
     server.use(
-      http.post(`${BASE}/api/admin/reset-password`, async ({ request }) => {
+      http.post(`${BASE}/api/auth/reset-password`, async ({ request }) => {
         capturedUrl  = request.url
         capturedBody = await request.json() as Record<string, unknown>
         return HttpResponse.json({})
@@ -136,8 +97,8 @@ describe('authService — resetPassword() — F-08 token-in-body', () => {
 
   it('throws 400 when the body is missing required fields', async () => {
     server.use(
-      http.post(`${BASE}/api/admin/reset-password`, () =>
-        HttpResponse.json({ message: 'token and password are required' }, { status: 400 }),
+      http.post(`${BASE}/api/auth/reset-password`, () =>
+        HttpResponse.json({ error: 'token and password are required' }, { status: 400 }),
       ),
     )
 

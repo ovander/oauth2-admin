@@ -599,7 +599,7 @@ async function loadUsers() {
     const response = await getUsers({ page: 1, page_size: 100 })
     users.value = response.users || []
     totalUsers.value = response.total_count || 0
-  } catch (error) {
+  } catch {
     showError('Failed to load users')
   } finally {
     loadingUsers.value = false
@@ -611,7 +611,7 @@ async function loadSuperadmins() {
   try {
     const response = await getSuperadmins()
     superadmins.value = response.superadmins || []
-  } catch (error) {
+  } catch {
     showError('Failed to load superadmins')
   } finally {
     loadingSuperadmins.value = false
@@ -623,7 +623,7 @@ async function loadActivityLogs() {
   try {
     const response = await getAdminActivityLog({ page: 1, page_size: 100 })
     activityLogs.value = response.logs || []
-  } catch (error) {
+  } catch {
     showError('Failed to load activity logs')
   } finally {
     loadingLogs.value = false

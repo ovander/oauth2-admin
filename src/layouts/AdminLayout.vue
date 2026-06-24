@@ -12,11 +12,11 @@
         <!-- Logo -->
         <div class="flex flex-col h-16 px-6 py-3 border-b border-gray-200 dark:border-brand-800">
           <div class="flex items-center gap-3">
-            <div class="w-9 h-9 gradient-brand rounded-lg flex items-center justify-center">
-              <i class="pi pi-shield text-white"></i>
+            <div class="w-9 h-9 gradient-brand rounded-lg flex items-center justify-center overflow-hidden">
+              <img src="/socrate-logo.png" alt="Socrate" class="w-full h-full object-contain" />
             </div>
             <div>
-              <span class="text-lg font-bold text-gray-900 dark:text-white">OAuth2 Server</span>
+              <span class="text-lg font-bold text-gray-900 dark:text-white">Socrate</span>
             </div>
           </div>
           <span class="text-[10px] font-semibold text-brand-600 dark:text-brand-400 uppercase tracking-widest ml-12">
@@ -41,6 +41,27 @@
             <i :class="['pi', item.icon, 'text-lg']"></i>
             <span>{{ item.label }}</span>
           </router-link>
+
+          <div class="pt-4 mt-4 border-t border-gray-200 dark:border-brand-800">
+            <p class="px-3 mb-2 text-xs font-semibold text-gray-400 dark:text-brand-500 uppercase tracking-wider">
+              Security
+            </p>
+            <router-link
+              v-for="item in securityNavigation"
+              :key="item.name"
+              :to="item.to"
+              :class="[
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors duration-150',
+                isActiveRoute(item.to)
+                  ? 'bg-brand-50 dark:bg-brand-800 text-brand-700 dark:text-white font-medium'
+                  : 'text-gray-600 dark:text-brand-300 hover:bg-gray-100 dark:hover:bg-brand-800 hover:text-gray-900 dark:hover:text-white'
+              ]"
+              @click="closeSidebarOnMobile"
+            >
+              <i :class="['pi', item.icon, 'text-lg']"></i>
+              <span>{{ item.label }}</span>
+            </router-link>
+          </div>
 
           <div class="pt-4 mt-4 border-t border-gray-200 dark:border-brand-800">
             <p class="px-3 mb-2 text-xs font-semibold text-gray-400 dark:text-brand-500 uppercase tracking-wider">
@@ -209,7 +230,15 @@ const mainNavigation = [
   { name: 'dashboard', label: 'Dashboard',    icon: 'pi-th-large', to: { name: 'Dashboard'    } },
   { name: 'apps',      label: 'Applications', icon: 'pi-box',      to: { name: 'Applications' } },
   { name: 'users',     label: 'Users',        icon: 'pi-users',    to: { name: 'Users'        } },
-  { name: 'security',  label: 'Security',     icon: 'pi-shield',   to: { name: 'Security'     } },
+]
+
+const securityNavigation = [
+  { name: 'security-overview', label: 'Overview',     icon: 'pi-shield',        to: { name: 'Security'      } },
+  { name: 'security-events',   label: 'Events',       icon: 'pi-history',       to: { name: 'SecurityEvents' } },
+  { name: 'sessions',          label: 'Sessions',     icon: 'pi-desktop',       to: { name: 'Sessions'      } },
+  { name: 'blocked-ips',       label: 'Blocked IPs',  icon: 'pi-ban',           to: { name: 'BlockedIps'    } },
+  { name: 'alerts',            label: 'Alerts',       icon: 'pi-bell',          to: { name: 'Alerts'        } },
+  { name: 'reports',           label: 'Reports',      icon: 'pi-file',          to: { name: 'Reports'       } },
 ]
 
 const systemNavigation = [

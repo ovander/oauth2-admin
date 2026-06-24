@@ -1,10 +1,13 @@
 /**
  * Component tests for src/views/auth/LoginView.vue
  *
+ * The login screen no longer collects credentials — it starts the
+ * Authorization Code + PKCE flow by redirecting to the AS hosted login.
+ *
  * Security relevance:
- *  F-04 — safeRedirect(): only internal relative paths accepted
- *  F-05 — MFA routing: login('mfa_required') must navigate to MfaVerify
- *  F-19 — No remember-me: the checkbox must not exist in the rendered DOM
+ *  F-03 — no password/MFA field is rendered; auth is delegated to the AS
+ *  F-04 — the redirect query param is sanitised to internal relative paths
+ *         before being handed to loginRedirect() (open-redirect prevention)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
@@ -12,191 +15,72 @@ import { setActivePinia, createPinia } from 'pinia'
 import LoginView from '@/views/auth/LoginView.vue'
 
 // ─── Router mock ─────────────────────────────────────────────────────────────
-const mockPush    = vi.fn()
-const mockReplace = vi.fn()
-const mockRoute   = { query: {} as Record<string, string> }
+const mockRoute = { query: {} as Record<string, string> }
 
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useRoute:  () => mockRoute,
 }))
 
 // ─── authStore mock ───────────────────────────────────────────────────────────
-const mockLogin      = vi.fn()
-const mockClearError = vi.fn()
-const mockError      = { value: null as string | null }
+const mockLoginRedirect = vi.fn()
+const mockClearError    = vi.fn()
 
 vi.mock('@/stores/authStore', () => ({
   useAuthStore: () => ({
-    login:       mockLogin,
-    clearError:  mockClearError,
-    error:       mockError.value,
-    isLoading:   false,
+    loginRedirect: mockLoginRedirect,
+    clearError:    mockClearError,
+    error:         null,
+    isLoading:     false,
   }),
 }))
 
 function mountLogin(queryOverrides: Record<string, string> = {}) {
   mockRoute.query = queryOverrides
   setActivePinia(createPinia())
-  return mount(LoginView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+  return mount(LoginView)
 }
 
-describe('LoginView — F-04: safeRedirect()', () => {
+describe('LoginView — PKCE redirect', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockLogin.mockResolvedValue('ok')
+    mockLoginRedirect.mockResolvedValue(undefined)
   })
 
-  it('redirects to /dashboard after successful login (no redirect param)', async () => {
+  it('renders a sign-in button and NO password field (F-03)', () => {
     const wrapper = mountLogin()
-    await wrapper.find('input[type="email"]').setValue('admin@example.com')
-    await wrapper.find('input[type="password"]').setValue('mypassword')
-    await wrapper.find('form').trigger('submit')
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(mockPush).toHaveBeenCalledWith({ name: 'Dashboard' })
+    expect(wrapper.find('button').exists()).toBe(true)
+    expect(wrapper.find('input[type="password"]').exists()).toBe(false)
+    expect(wrapper.find('input[type="email"]').exists()).toBe(false)
   })
 
-  it('honours a safe relative redirect path after login', async () => {
-    mockLogin.mockResolvedValue('ok')
+  it('starts login with no return path when there is no redirect param', async () => {
+    const wrapper = mountLogin()
+    await wrapper.find('button').trigger('click')
+    expect(mockLoginRedirect).toHaveBeenCalledWith(undefined)
+  })
+
+  it('forwards a safe relative redirect path to loginRedirect (F-04)', async () => {
     const wrapper = mountLogin({ redirect: '/apps/123' })
-    await wrapper.find('input[type="email"]').setValue('admin@example.com')
-    await wrapper.find('input[type="password"]').setValue('mypassword')
-    await wrapper.find('form').trigger('submit')
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(mockPush).toHaveBeenCalledWith('/apps/123')
+    await wrapper.find('button').trigger('click')
+    expect(mockLoginRedirect).toHaveBeenCalledWith('/apps/123')
   })
 
-  it('ignores protocol-relative redirect (//evil.com) — open redirect prevention', async () => {
-    mockLogin.mockResolvedValue('ok')
+  it('strips a protocol-relative redirect (//evil.com) — open-redirect prevention', async () => {
     const wrapper = mountLogin({ redirect: '//evil.com/steal-tokens' })
-    await wrapper.find('input[type="email"]').setValue('admin@example.com')
-    await wrapper.find('input[type="password"]').setValue('mypassword')
-    await wrapper.find('form').trigger('submit')
-    await Promise.resolve()
-    await Promise.resolve()
-
-    // Must fall back to Dashboard, never navigate to //evil.com
-    expect(mockPush).toHaveBeenCalledWith({ name: 'Dashboard' })
+    await wrapper.find('button').trigger('click')
+    expect(mockLoginRedirect).toHaveBeenCalledWith(undefined)
   })
 
-  it('ignores https:// absolute redirect — open redirect prevention', async () => {
-    mockLogin.mockResolvedValue('ok')
+  it('strips an https:// absolute redirect — open-redirect prevention', async () => {
     const wrapper = mountLogin({ redirect: 'https://attacker.com' })
-    await wrapper.find('input[type="email"]').setValue('admin@example.com')
-    await wrapper.find('input[type="password"]').setValue('mypassword')
-    await wrapper.find('form').trigger('submit')
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(mockPush).toHaveBeenCalledWith({ name: 'Dashboard' })
+    await wrapper.find('button').trigger('click')
+    expect(mockLoginRedirect).toHaveBeenCalledWith(undefined)
   })
 
-  it('ignores javascript: pseudo-protocol', async () => {
-    mockLogin.mockResolvedValue('ok')
+  it('strips a javascript: pseudo-protocol redirect', async () => {
     const wrapper = mountLogin({ redirect: 'javascript:alert(1)' })
-    await wrapper.find('input[type="email"]').setValue('admin@example.com')
-    await wrapper.find('input[type="password"]').setValue('mypassword')
-    await wrapper.find('form').trigger('submit')
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(mockPush).toHaveBeenCalledWith({ name: 'Dashboard' })
-  })
-})
-
-describe('LoginView — F-05: MFA routing', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('navigates to MfaVerify route when login returns mfa_required', async () => {
-    mockLogin.mockResolvedValue('mfa_required')
-    const wrapper = mountLogin()
-    await wrapper.find('input[type="email"]').setValue('admin@example.com')
-    await wrapper.find('input[type="password"]').setValue('mypassword')
-    await wrapper.find('form').trigger('submit')
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(mockPush).toHaveBeenCalledWith({ name: 'MfaVerify', query: {} })
-  })
-
-  it('preserves safe redirect through MFA navigation', async () => {
-    mockLogin.mockResolvedValue('mfa_required')
-    const wrapper = mountLogin({ redirect: '/security' })
-    await wrapper.find('input[type="email"]').setValue('admin@example.com')
-    await wrapper.find('input[type="password"]').setValue('mypassword')
-    await wrapper.find('form').trigger('submit')
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(mockPush).toHaveBeenCalledWith({ name: 'MfaVerify', query: { redirect: '/security' } })
-  })
-
-  it('does NOT navigate on login error', async () => {
-    mockLogin.mockResolvedValue('error')
-    const wrapper = mountLogin()
-    await wrapper.find('input[type="email"]').setValue('x@x.com')
-    await wrapper.find('input[type="password"]').setValue('wrong')
-    await wrapper.find('form').trigger('submit')
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(mockPush).not.toHaveBeenCalled()
-  })
-})
-
-describe('LoginView — F-19: No remember-me checkbox', () => {
-  it('renders no remember-me checkbox in the form', () => {
-    const wrapper = mountLogin()
-    const checkboxes = wrapper.findAll('input[type="checkbox"]')
-    expect(checkboxes).toHaveLength(0)
-  })
-
-  it('renders no element with text content matching "remember"', () => {
-    const wrapper = mountLogin()
-    const html = wrapper.html().toLowerCase()
-    expect(html).not.toContain('remember me')
-    expect(html).not.toContain('remember-me')
-    expect(html).not.toContain('keep me signed in')
-  })
-})
-
-describe('LoginView — form validation', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockLogin.mockResolvedValue('ok')
-  })
-
-  it('does not call authStore.login when email is empty', async () => {
-    const wrapper = mountLogin()
-    await wrapper.find('input[type="password"]').setValue('password')
-    await wrapper.find('form').trigger('submit')
-    await Promise.resolve()
-
-    expect(mockLogin).not.toHaveBeenCalled()
-  })
-
-  it('does not call authStore.login when password is empty', async () => {
-    const wrapper = mountLogin()
-    await wrapper.find('input[type="email"]').setValue('admin@example.com')
-    await wrapper.find('form').trigger('submit')
-    await Promise.resolve()
-
-    expect(mockLogin).not.toHaveBeenCalled()
-  })
-
-  it('does not call authStore.login for invalid email format', async () => {
-    const wrapper = mountLogin()
-    await wrapper.find('input[type="email"]').setValue('not-an-email')
-    await wrapper.find('input[type="password"]').setValue('pass')
-    await wrapper.find('form').trigger('submit')
-    await Promise.resolve()
-
-    expect(mockLogin).not.toHaveBeenCalled()
+    await wrapper.find('button').trigger('click')
+    expect(mockLoginRedirect).toHaveBeenCalledWith(undefined)
   })
 })

@@ -15,11 +15,6 @@ export async function getSecurityEvents(filters?: SecurityEventFilters): Promise
   return response.data
 }
 
-export async function getSecurityEvent(id: number): Promise<SecurityEvent> {
-  const response = await api.get<SecurityEvent>(`/api/admin/security/events/${id}`)
-  return response.data
-}
-
 export async function getRecentSecurityEvents(limit: number = 10): Promise<SecurityEvent[]> {
   const response = await api.get<SecurityEventListResponse>('/api/admin/security/events', {
     params: { limit }
@@ -33,13 +28,11 @@ export async function getSecurityStats(): Promise<ThreatMetricsResponse> {
   return response.data
 }
 
-export async function exportSecurityLogs(filters?: SecurityEventFilters): Promise<Blob> {
-  const response = await api.get('/api/admin/security/events/export', {
-    params: filters,
-    responseType: 'blob'
-  })
-  return response.data
-}
+// NOTE: Security-event CSV export is intentionally not provided. The admin API
+// exposes no `/api/admin/security/events/export` route — server-wide security
+// exports are produced asynchronously via the Reports API
+// (`POST /api/admin/reports/security`), which the portal does not yet surface.
+// Admin *audit* logs (below) do have a real export endpoint.
 
 // Admin Audit Logs — /api/admin/logs
 export async function getAdminAuditLogs(filters?: AdminAuditFilters): Promise<AdminAuditListResponse> {

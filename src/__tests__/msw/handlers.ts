@@ -2,8 +2,15 @@
  * MSW request handlers — canonical happy-path responses.
  *
  * Individual tests override specific routes with server.use() to simulate
- * error states (401, 403, 5xx) or alternative responses (MFA challenge).
+ * error states (401, 403, 5xx) or alternative responses.
  * server.resetHandlers() in afterEach restores these defaults.
+ *
+ * These mirror the Socrate backend contract:
+ *   • OAuth API   — /oauth/token (Authorization Code + PKCE exchange + refresh),
+ *     /api/auth/* (refresh, logout), /api/profile — same gateway origin.
+ *   • Admin API   — /api/admin/*   (profile, sessions, …)
+ *   • Login (credentials + MFA) is delegated to the AS hosted login; the SPA
+ *     only exchanges the returned authorization code at /oauth/token.
  */
 import { http, HttpResponse } from 'msw'
 
@@ -19,67 +26,65 @@ export const ADMIN_USER = {
 
 export const LOGIN_RESPONSE = {
   access_token: 'test-access-token',
-  user:         ADMIN_USER,
+  token_type:   'Bearer',
+  expires_in:   900,
 }
 
 export const REFRESH_RESPONSE = {
   access_token: 'refreshed-access-token',
-  user:         ADMIN_USER,
 }
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 export const handlers = [
-  // POST /api/admin/login ── happy-path: returns full session
-  http.post(`${BASE}/api/admin/login`, async ({ request }) => {
-    const body = await request.json() as { email: string; password: string }
+  // POST /oauth/token ── Authorization Code + PKCE exchange (and refresh_token grant)
+  http.post(`${BASE}/oauth/token`, async ({ request }) => {
+    const params = new URLSearchParams(await request.text())
+    const grant  = params.get('grant_type')
 
-    if (body.email === 'mfa@example.com') {
-      return HttpResponse.json({ requires_mfa: true })
+    if (grant === 'authorization_code') {
+      // A valid exchange carries the code + the PKCE verifier.
+      if (params.get('code') && params.get('code_verifier')) {
+        return HttpResponse.json(LOGIN_RESPONSE)
+      }
+      return HttpResponse.json({ error: 'invalid_grant' }, { status: 400 })
     }
-    if (body.email === 'admin@example.com' && body.password === 'correct-password') {
-      return HttpResponse.json(LOGIN_RESPONSE)
+
+    if (grant === 'refresh_token') {
+      return HttpResponse.json(REFRESH_RESPONSE)
     }
-    return HttpResponse.json({ message: 'Invalid credentials' }, { status: 401 })
+
+    return HttpResponse.json({ error: 'unsupported_grant_type' }, { status: 400 })
   }),
 
-  // POST /api/admin/mfa/verify
-  http.post(`${BASE}/api/admin/mfa/verify`, async ({ request }) => {
-    const body = await request.json() as { code: string }
-    if (body.code === '123456') {
-      return HttpResponse.json({ ...LOGIN_RESPONSE, access_token: 'mfa-access-token' })
-    }
-    return HttpResponse.json({ message: 'Invalid MFA code' }, { status: 401 })
-  }),
-
-  // POST /api/admin/logout ── always succeeds
-  http.post(`${BASE}/api/admin/logout`, () => HttpResponse.json({})),
+  // POST /api/auth/logout ── public-API logout, always succeeds
+  http.post(`${BASE}/api/auth/logout`, () => HttpResponse.json({})),
 
   // GET /api/admin/profile ── validates Bearer header presence
   http.get(`${BASE}/api/admin/profile`, ({ request }) => {
     const auth = request.headers.get('Authorization')
     if (!auth?.startsWith('Bearer ')) {
-      return HttpResponse.json({ message: 'Unauthorized' }, { status: 401 })
+      return HttpResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     return HttpResponse.json(ADMIN_USER)
   }),
 
-  // POST /api/admin/refresh ── silent cookie-based refresh (happy-path)
-  http.post(`${BASE}/api/admin/refresh`, () => HttpResponse.json(REFRESH_RESPONSE)),
+  // Note: silent refresh is the /oauth/token `grant_type=refresh_token` branch
+  // above (cookie Path=/oauth/token) — not a separate endpoint.
 
-  // POST /api/admin/reset-password
-  http.post(`${BASE}/api/admin/reset-password`, async ({ request }) => {
+  // POST /api/auth/reset-password
+  http.post(`${BASE}/api/auth/reset-password`, async ({ request }) => {
     const body = await request.json() as { token: string; password: string }
     if (!body.token || !body.password) {
-      return HttpResponse.json({ message: 'token and password are required' }, { status: 400 })
+      return HttpResponse.json({ error: 'token and password are required' }, { status: 400 })
     }
     return HttpResponse.json({})
   }),
 
-  // POST /api/admin/request-password-reset
-  http.post(`${BASE}/api/admin/request-password-reset`, () => HttpResponse.json({})),
+  // POST /api/auth/request-password-reset
+  http.post(`${BASE}/api/auth/request-password-reset`, () => HttpResponse.json({})),
 
-  // PUT /api/admin/profile
-  http.put(`${BASE}/api/admin/profile`, async ({ request }) => {
+  // PUT /api/profile ── public profile self-service update
+  http.put(`${BASE}/api/profile`, async ({ request }) => {
     const body = await request.json() as Partial<typeof ADMIN_USER>
     return HttpResponse.json({ ...ADMIN_USER, ...body })
   }),

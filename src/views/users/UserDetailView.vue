@@ -285,6 +285,63 @@
           <p class="text-sm mt-1">They haven't been added to any OAuth applications yet.</p>
         </div>
       </div>
+
+      <!-- Active Sessions -->
+      <div class="card p-6 mt-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Active Sessions</h3>
+          <Button
+            icon="pi pi-refresh"
+            severity="secondary"
+            text
+            size="small"
+            @click="loadSessions"
+            :loading="loadingSessions"
+          />
+        </div>
+
+        <p class="text-sm text-gray-500 dark:text-brand-400 mb-4">
+          Current sessions for this user across all applications. To end them, use “Revoke All Tokens” above.
+        </p>
+
+        <div v-if="loadingSessions" class="py-8 text-center">
+          <i class="pi pi-spin pi-spinner text-3xl text-gray-400"></i>
+          <p class="mt-2 text-gray-500">Loading sessions...</p>
+        </div>
+
+        <DataTable
+          v-else-if="sessions.length"
+          :value="sessions"
+          stripedRows
+          class="p-datatable-sm"
+        >
+          <Column field="app_name" header="Application">
+            <template #body="{ data }">
+              <span class="text-sm text-gray-900 dark:text-white">{{ data.app_name || '—' }}</span>
+            </template>
+          </Column>
+          <Column field="ip_address" header="IP Address" style="width: 150px">
+            <template #body="{ data }">
+              <span class="text-sm font-mono text-gray-600 dark:text-brand-400">{{ data.ip_address }}</span>
+            </template>
+          </Column>
+          <Column field="last_activity" header="Last Activity" style="width: 180px">
+            <template #body="{ data }">
+              <span class="text-sm text-gray-500 dark:text-brand-400">{{ formatDateTime(data.last_activity) }}</span>
+            </template>
+          </Column>
+          <Column field="expires_at" header="Expires" style="width: 150px">
+            <template #body="{ data }">
+              <span class="text-sm text-gray-500 dark:text-brand-400">{{ formatDate(data.expires_at) }}</span>
+            </template>
+          </Column>
+        </DataTable>
+
+        <div v-else class="text-center py-8 text-gray-500 dark:text-brand-400">
+          <i class="pi pi-desktop text-4xl mb-2"></i>
+          <p>No active sessions</p>
+        </div>
+      </div>
     </template>
 
     <!-- Revoke Tokens Confirmation -->
@@ -384,7 +441,9 @@ import LoadingState from '@/components/ui/LoadingState.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { useToast } from '@/composables/useToast'
 import { getUser, getUserApps, revokeUserTokens, unlockUser, blockUser, deleteUser } from '@/services/userService'
+import { getUserSessions } from '@/services/monitoringService'
 import type { GlobalUser, UserAppMembershipsResponse } from '@/types/user'
+import type { AdminSession } from '@/types/monitoring'
 
 const route = useRoute()
 const router = useRouter()
@@ -393,6 +452,8 @@ const { showSuccess, showError } = useToast()
 // State
 const loading = ref(true)
 const loadingMemberships = ref(false)
+const loadingSessions = ref(false)
+const sessions = ref<AdminSession[]>([])
 const revokingTokens = ref(false)
 const unlocking = ref(false)
 const blocking = ref(false)
@@ -422,8 +483,9 @@ async function loadUserData() {
 
   try {
     user.value = await getUser(id)
-    // Load memberships in parallel
+    // Load memberships and sessions in parallel
     loadMemberships()
+    loadSessions()
   } catch (error) {
     console.error('Load user error:', error)
     user.value = null
@@ -442,6 +504,20 @@ async function loadMemberships() {
     // Don't show error - might just be empty
   } finally {
     loadingMemberships.value = false
+  }
+}
+
+async function loadSessions() {
+  if (!user.value) return
+  loadingSessions.value = true
+  try {
+    const res = await getUserSessions(user.value.id)
+    sessions.value = res.sessions
+  } catch (error) {
+    console.error('Load sessions error:', error)
+    sessions.value = []
+  } finally {
+    loadingSessions.value = false
   }
 }
 

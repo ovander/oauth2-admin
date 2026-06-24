@@ -96,6 +96,10 @@ export default defineConfig(({ mode }) => ({
     environment: 'happy-dom',
     setupFiles:  ['./src/__tests__/setup.ts'],
     include:     ['src/**/*.{test,spec}.{ts,tsx}'],
+    // Reset mock call history before each test. vitest 4's restoreAllMocks (in
+    // setup.ts) no longer clears auto-mock call history the way v2 did, so make
+    // the per-test reset explicit and runner-version-independent.
+    clearMocks:  true,
     env: {
       // Provide a default value so secureConfig.ts does not throw when
       // modules are imported by test files that do not override this env var.
@@ -122,11 +126,12 @@ export default defineConfig(({ mode }) => ({
         'src/utils/secureConfig.ts',
         'src/services/api.ts',
         'src/services/authService.ts',
+        'src/services/oauth.ts',
+        'src/services/pkce.ts',
         'src/stores/authStore.ts',
         'src/composables/useClipboard.ts',
         'src/composables/useSessionTimeout.ts',
         'src/views/auth/LoginView.vue',
-        'src/views/auth/MfaVerifyView.vue',
         'src/views/auth/ResetPasswordView.vue',
       ],
       exclude: [

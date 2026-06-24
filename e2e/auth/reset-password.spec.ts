@@ -20,7 +20,7 @@ const VALID_PASSWORD = 'Str0ng!Pass1234X'  // 16 characters
 // ─── Fragment token ───────────────────────────────────────────────────────────
 test('token read from URL fragment (#token=) enables the form (F-08)', async ({ page }) => {
   await mockRefreshFail(page)
-  await page.route('**/api/admin/reset-password', route =>
+  await page.route('**/api/auth/reset-password', route =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
   )
 
@@ -66,7 +66,7 @@ test('reset token is sent in the request body, never in the URL (F-08)', async (
   let capturedBody: Record<string, string> = {}
   let capturedUrl  = ''
 
-  await page.route('**/api/admin/reset-password', async route => {
+  await page.route('**/api/auth/reset-password', async route => {
     const request = route.request()
     capturedUrl  = request.url()
     capturedBody = JSON.parse(request.postData() ?? '{}')

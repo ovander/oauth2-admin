@@ -5,9 +5,8 @@
  * rather than mounting the full router, which is faster and more precise.
  *
  * Security relevance:
- *  F-05 — requiresMfa guard: /auth/mfa must only be accessible during a
- *          live MFA challenge; otherwise an attacker could navigate there
- *          directly and potentially bypass the second-factor check.
+ *  callback — the OAuth callback route must process the authorization code
+ *          without an auth/guest redirect interrupting the in-flight exchange.
  *  F-04 — safe redirect: the redirect appended to the Login URL must not
  *          allow open-redirect payloads to survive into the query string.
  *  requiresAuth — unauthenticated users must never reach admin routes.
@@ -20,7 +19,6 @@ import { setActivePinia, createPinia } from 'pinia'
 // ─── Shared mock store state ──────────────────────────────────────────────────
 const storeState = {
   isAuthenticated: false,
-  mfaRequired:     false,
   isSuperAdmin:    false,
   checkAuth:       vi.fn().mockResolvedValue(false),
 }
@@ -55,13 +53,12 @@ async function runGuard(
 ) {
   const authStore = useAuthStore()
 
-  if (!authStore.isAuthenticated) {
-    await authStore.checkAuth()
+  if (to.meta['callback']) {
+    return next()
   }
 
-  if (to.meta['requiresMfa']) {
-    if (!authStore.mfaRequired) return next({ name: 'Login' })
-    return next()
+  if (!authStore.isAuthenticated) {
+    await authStore.checkAuth()
   }
 
   if (to.meta['guest'] && authStore.isAuthenticated) {
@@ -86,26 +83,25 @@ describe('Router guards', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     storeState.isAuthenticated = false
-    storeState.mfaRequired     = false
     storeState.isSuperAdmin    = false
     storeState.checkAuth       = vi.fn().mockResolvedValue(false)
   })
 
-  // ── requiresMfa guard (F-05) ─────────────────────────────────────────────────
+  // ── callback passthrough ─────────────────────────────────────────────────────
 
-  describe('requiresMfa guard', () => {
-    it('redirects to Login when navigating to MFA route without a pending challenge', async () => {
-      storeState.mfaRequired = false
+  describe('OAuth callback route', () => {
+    it('passes straight through without redirecting or calling checkAuth', async () => {
       const next = vi.fn()
-      await runGuard({ meta: { requiresMfa: true }, fullPath: '/auth/mfa' }, next)
-      expect(next).toHaveBeenCalledWith({ name: 'Login' })
+      await runGuard({ meta: { callback: true, guest: true }, fullPath: '/auth/callback' }, next)
+      expect(next).toHaveBeenCalledWith()                 // allowed
+      expect(storeState.checkAuth).not.toHaveBeenCalled() // exchange not pre-empted
     })
 
-    it('allows navigation to MFA route when challenge is pending', async () => {
-      storeState.mfaRequired = true
+    it('does not bounce an authenticated user away from the callback', async () => {
+      storeState.isAuthenticated = true
       const next = vi.fn()
-      await runGuard({ meta: { requiresMfa: true }, fullPath: '/auth/mfa' }, next)
-      expect(next).toHaveBeenCalledWith()    // called with no args = allow
+      await runGuard({ meta: { callback: true, guest: true }, fullPath: '/auth/callback' }, next)
+      expect(next).toHaveBeenCalledWith()                 // NOT { name: 'Dashboard' }
     })
   })
 

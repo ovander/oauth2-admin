@@ -4,16 +4,8 @@
       title="Security Events"
       subtitle="View and filter all security-related events"
       :breadcrumbs="[{ label: 'Security', to: { name: 'Security' } }]"
-    >
-      <template #actions>
-        <Button
-          label="Export"
-          icon="pi pi-download"
-          class="btn-secondary"
-          @click="exportEvents"
-        />
-      </template>
-    </PageHeader>
+    />
+
 
     <!-- Filters -->
     <div class="card p-4 mb-6">
@@ -334,26 +326,6 @@ function clearFilters() {
 function showEventDetails(event: SecurityEvent) {
   selectedEvent.value = event
   showDetails.value = true
-}
-
-async function exportEvents() {
-  try {
-    const blob = await securityService.exportSecurityLogs({
-      event_type: filters.event_type || undefined,
-      severity: filters.severity || undefined,
-      from: filters.dateRange?.[0]?.toISOString(),
-      to: filters.dateRange?.[1]?.toISOString()
-    })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `security-events-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
-    toast.success('Export downloaded')
-  } catch {
-    toast.error('Failed to export events')
-  }
 }
 
 function getEventLabel(type: string): string {

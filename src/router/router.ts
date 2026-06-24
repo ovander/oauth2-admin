@@ -13,7 +13,7 @@ const routes: RouteRecordRaw[] = [
     meta:      { guest: true },
     children:  [
       { path: 'login',          name: 'Login',          component: () => import('@/views/auth/LoginView.vue'),          meta: { title: 'Login' } },
-      { path: 'mfa',            name: 'MfaVerify',      component: () => import('@/views/auth/MfaVerifyView.vue'),      meta: { title: 'Two-Factor Authentication', requiresMfa: true } },
+      { path: 'callback',       name: 'AuthCallback',   component: () => import('@/views/auth/CallbackView.vue'),       meta: { title: 'Signing in…', callback: true } },
       { path: 'forgot-password',name: 'ForgotPassword', component: () => import('@/views/auth/ForgotPasswordView.vue'), meta: { title: 'Forgot Password' } },
       { path: 'reset-password', name: 'ResetPassword',  component: () => import('@/views/auth/ResetPasswordView.vue'),  meta: { title: 'Reset Password' } },
     ],
@@ -33,6 +33,10 @@ const routes: RouteRecordRaw[] = [
       { path: 'users/:id',  name: 'UserDetail',      component: () => import('@/views/users/UserDetailView.vue'),             props: true, meta: { title: 'User Details'     } },
       { path: 'security',   name: 'Security',        component: () => import('@/views/security/SecurityDashboardView.vue'),   meta: { title: 'Security'          } },
       { path: 'security/events', name: 'SecurityEvents', component: () => import('@/views/security/SecurityEventsView.vue'), meta: { title: 'Security Events'   } },
+      { path: 'security/sessions', name: 'Sessions', component: () => import('@/views/security/SessionsView.vue'), meta: { title: 'Active Sessions' } },
+      { path: 'security/blocked-ips', name: 'BlockedIps', component: () => import('@/views/security/BlockedIpsView.vue'), meta: { title: 'Blocked IPs', requiresSuperAdmin: true } },
+      { path: 'security/alerts', name: 'Alerts', component: () => import('@/views/security/AlertsView.vue'), meta: { title: 'Alerts', requiresSuperAdmin: true } },
+      { path: 'security/reports', name: 'Reports', component: () => import('@/views/security/ReportsView.vue'), meta: { title: 'Security Reports', requiresSuperAdmin: true } },
       { path: 'logs',       name: 'AdminLogs',       component: () => import('@/views/logs/AdminLogsView.vue'),               meta: { title: 'Admin Logs',      requiresSuperAdmin: true } },
       { path: 'settings',   name: 'Settings',        component: () => import('@/views/settings/SettingsView.vue'),            meta: { title: 'Settings'          } },
       { path: 'settings/profile', name: 'Profile',   component: () => import('@/views/settings/ProfileView.vue'),            meta: { title: 'My Profile'        } },
@@ -56,19 +60,19 @@ const router = createRouter({
 router.beforeEach(async (to, _from, next) => {
   // Update document title
   const title = to.meta.title as string | undefined
-  document.title = title ? `${title} | OAuth2 Admin` : 'OAuth2 Admin'
+  document.title = title ? `${title} | Socrate` : 'Socrate — Superadmin Portal'
 
   const authStore = useAuthStore()
+
+  // OAuth callback route: let the view process the authorization code without
+  // any auth/guest redirect interfering with the in-flight exchange.
+  if (to.meta.callback) {
+    return next()
+  }
 
   // Re-hydrate auth state on every cold navigation
   if (!authStore.isAuthenticated) {
     await authStore.checkAuth()
-  }
-
-  // MFA-only route: only accessible when a pending MFA challenge exists
-  if (to.meta.requiresMfa) {
-    if (!authStore.mfaRequired) return next({ name: 'Login' })
-    return next()
   }
 
   // Guest routes: redirect authenticated users to dashboard

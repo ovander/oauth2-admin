@@ -1,8 +1,8 @@
-# OAuth2 Superadmin Portal
+# Socrate — Superadmin Portal
 
-A modern, production-ready **Superadmin Portal** for OAuth2 server management built with Vue.js 3, PrimeVue 4, and Tailwind CSS 4.
+A modern, production-ready **Superadmin Portal** for the [Socrate](https://github.com/ovander/go-oauth2) OAuth2 / OpenID Connect platform, built with Vue.js 3, PrimeVue 4, and Tailwind CSS 4.
 
-> ⚠️ **This portal is for Superadmins only.** Superadmins manage the OAuth2 server itself — creating applications, managing global users, and monitoring server-wide security. App Admins should use their application's admin interface.
+> ⚠️ **This portal is for Superadmins only.** Superadmins manage the Socrate OAuth2 server itself — creating applications, managing global users, and monitoring server-wide security. App Admins should use their application's admin interface.
 
 ![OAuth2 Admin](https://img.shields.io/badge/Vue.js-3.5-green)
 ![PrimeVue](https://img.shields.io/badge/PrimeVue-4.2-blue)
@@ -60,20 +60,22 @@ A modern, production-ready **Superadmin Portal** for OAuth2 server management bu
 - Bulk actions support
 
 ### Security & Audit
-- Real-time security event monitoring
-- Failed login attempt tracking
-- Brute force detection alerts
-- Suspicious activity notifications
-- Comprehensive admin audit logs
-- Export functionality for compliance
+- Security dashboard with threat metrics and a live event stream (SSE)
+- Security event log with filtering
+- Active session monitoring across all applications
+- Blocked-IP management and per-IP reputation lookup
+- Alert rules (create/edit/delete) and triggered-alert history with acknowledgement
+- Token analytics and geographic login activity
+- On-demand security report generation and download
+- Comprehensive admin audit logs with export
 
 ### Settings & Profile
 - Server configuration overview
 - Connection health checks
 - Feature toggles visibility
 - Profile management
-- Password change
-- Active session management
+- Email-based password reset
+- Own active-session overview
 - Dark/Light theme toggle
 
 ## Tech Stack
@@ -187,10 +189,10 @@ See `.env.example` for detailed documentation.
 This portal connects to **Port 8081** (Admin API) exclusively. All endpoints use the `/api/admin/*` prefix:
 
 ### Authentication (Superadmin only)
-- `POST /api/admin/login` - Superadmin login (email + password)
-- `POST /api/admin/logout` - Session termination
-- `POST /api/admin/refresh` - Token refresh
-- `GET /api/admin/profile` - Current superadmin profile
+- `GET  /oauth/authorize` - Authorization Code + PKCE login (AS hosted login)
+- `POST /oauth/token` - Code→token exchange AND silent refresh (`grant_type=refresh_token`); the rotated refresh token rides an HttpOnly cookie scoped to `/oauth/token`
+- `POST /api/auth/logout` - Refresh-token revocation + cookie clear
+- `GET  /api/admin/profile` - Current superadmin profile
 
 ### Application Management
 - `GET /api/admin/apps` - List all applications
@@ -224,13 +226,24 @@ This portal connects to **Port 8081** (Admin API) exclusively. All endpoints use
 
 ## Authentication
 
-The application uses JWT-based authentication with automatic token refresh:
+The portal is a first-party **public client** using **Authorization Code + PKCE**
+(OAuth 2.1). Credentials and MFA are handled by the authorization server's hosted
+login — the SPA never sees them.
 
-1. Login credentials are sent to `/auth/login`
-2. Access and refresh tokens are stored in localStorage
-3. Axios interceptors automatically attach the access token
-4. On 401 responses, the refresh token is used to obtain new tokens
-5. If refresh fails, the user is redirected to login
+1. The user clicks **Sign in**; the SPA generates a PKCE `code_verifier`/`state`
+   (stored in `sessionStorage` for the round-trip) and redirects to
+   `/oauth/authorize` (`response_type=code`, `code_challenge_method=S256`).
+2. After authenticating (incl. MFA) at the AS, the browser is redirected back to
+   `/auth/callback?code=…&state=…`.
+3. The callback verifies `state` (CSRF/mix-up guard) and exchanges the code +
+   `code_verifier` at `/oauth/token`. The **access token is held in memory only**;
+   the **refresh token is set as an HttpOnly cookie** by the backend and is never
+   exposed to JavaScript.
+4. Axios interceptors attach the in-memory access token. On a `401`, a single
+   shared helper silently refreshes via the HttpOnly cookie (`POST /oauth/token`,
+   `grant_type=refresh_token`, rotated server-side) and retries the request.
+5. If refresh fails, the user is redirected to login. A cold page load
+   re-hydrates the session the same way (cookie → access token → profile).
 
 ## Role-Based Access Control
 

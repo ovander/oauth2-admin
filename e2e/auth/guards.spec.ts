@@ -6,12 +6,13 @@
  *   • The intended path is preserved as ?redirect= for post-login restoration
  *   • Authenticated user visiting /auth/login is bounced to Dashboard
  *   • Super-admin-only routes return 403 for app_admin users
- *   • MFA-only route is guarded when no challenge is pending
+ *   • The /auth/callback route passes through the guards untouched
  */
 import { test, expect }          from '@playwright/test'
 import {
   mockUnauthenticated,
-  mockRefreshFail,
+  mockAuthenticatedSession,
+  SUPER_ADMIN_USER,
   APP_ADMIN_USER,
 } from '../fixtures/api-mocks'
 
@@ -48,56 +49,28 @@ test('visiting /security while unauthenticated captures the redirect path', asyn
 
 // ─── Authenticated user on guest route ────────────────────────────────────────
 test('authenticated user visiting /auth/login is redirected to Dashboard', async ({ page }) => {
-  await page.route('**/api/admin/refresh', route =>
-    route.fulfill({
-      status:      200,
-      contentType: 'application/json',
-      body:        JSON.stringify({
-        access_token: 'already-logged-in-token',
-        user: { id: '1', email: 'admin@example.com', name: 'Test', role: 'super_admin' },
-      }),
-    }),
-  )
-  await page.route('**/api/admin/profile', route =>
-    route.fulfill({
-      status:      200,
-      contentType: 'application/json',
-      body:        JSON.stringify({ id: '1', email: 'admin@example.com', name: 'Test', role: 'super_admin' }),
-    }),
-  )
+  await mockAuthenticatedSession(page, SUPER_ADMIN_USER)
 
   await page.goto('/auth/login')
 
   await expect(page).toHaveURL('/')
 })
 
-// ─── Super-admin-only route (F-06) ────────────────────────────────────────────
-test('app_admin visiting /users is redirected to /403 (F-06)', async ({ page }) => {
-  await page.route('**/api/admin/refresh', route =>
-    route.fulfill({
-      status:      200,
-      contentType: 'application/json',
-      body:        JSON.stringify({ access_token: 'app-admin-token', user: APP_ADMIN_USER }),
-    }),
-  )
-  await page.route('**/api/admin/profile', route =>
-    route.fulfill({
-      status:      200,
-      contentType: 'application/json',
-      body:        JSON.stringify(APP_ADMIN_USER),
-    }),
-  )
+// ─── Super-admin-only route ───────────────────────────────────────────────────
+test('app_admin visiting /users is redirected to /403', async ({ page }) => {
+  await mockAuthenticatedSession(page, APP_ADMIN_USER)
 
   await page.goto('/users')
 
   await expect(page).toHaveURL('/403')
 })
 
-// ─── MFA-only route guard ─────────────────────────────────────────────────────
-test('visiting /auth/mfa directly without a pending MFA challenge redirects to Login', async ({ page }) => {
-  await mockRefreshFail(page)
+// ─── Callback route passthrough ───────────────────────────────────────────────
+test('visiting /auth/callback is allowed through the guards (not redirected away)', async ({ page }) => {
+  // No PKCE login in progress, so the exchange fails — but the guard must NOT
+  // bounce the route to /auth/login or Dashboard; the callback view handles it.
+  await page.goto('/auth/callback?code=abc&state=xyz')
 
-  await page.goto('/auth/mfa')
-
-  await expect(page).toHaveURL('/auth/login')
+  await expect(page).toHaveURL(/\/auth\/callback/)
+  await expect(page.getByText(/sign-in failed/i)).toBeVisible()
 })
