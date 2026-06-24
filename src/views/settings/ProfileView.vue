@@ -95,31 +95,18 @@
               class="px-6 py-4 flex items-center justify-between"
             >
               <div class="flex items-center gap-4">
-                <div
-                  class="w-10 h-10 rounded-full flex items-center justify-center"
-                  :class="session.is_current ? 'bg-success-100 dark:bg-success-900/30' : 'bg-gray-100 dark:bg-brand-800'"
-                >
-                  <i
-                    :class="[
-                      'pi text-lg',
-                      getDeviceIcon(session.user_agent),
-                      session.is_current ? 'text-success-600' : 'text-gray-500'
-                    ]"
-                  ></i>
+                <div class="w-10 h-10 rounded-full flex items-center justify-center bg-gray-100 dark:bg-brand-800">
+                  <i :class="['pi text-lg text-gray-500', getDeviceIcon(session.user_agent)]"></i>
                 </div>
                 <div>
                   <div class="flex items-center gap-2">
                     <p class="text-sm font-medium text-gray-900 dark:text-white">
                       {{ getDeviceName(session.user_agent) }}
                     </p>
-                    <StatusBadge
-                      v-if="session.is_current"
-                      status="success"
-                      label="Current"
-                    />
+                    <span class="text-xs text-gray-400 dark:text-brand-500">{{ session.app_name }}</span>
                   </div>
                   <p class="text-xs text-gray-500 dark:text-brand-400">
-                    {{ session.ip_address }} · Last active {{ formatRelativeTime(session.last_active_at) }}
+                    {{ session.ip_address }} · Last active {{ formatRelativeTime(session.last_activity) }}
                   </p>
                 </div>
               </div>
@@ -214,9 +201,10 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/composables/useToast'
 import * as authService from '@/services/authService'
+import { getSessions } from '@/services/monitoringService'
 import { formatDate, formatRelativeTime } from '@/utils/formatDate'
 import { roleLabel } from '@/utils/roles'
-import type { Session } from '@/types/auth'
+import type { AdminSession } from '@/types/monitoring'
 
 const authStore = useAuthStore()
 const toast = useToast()
@@ -224,7 +212,7 @@ const toast = useToast()
 // State
 const savingProfile = ref(false)
 const sendingReset = ref(false)
-const sessions = ref<Session[]>([])
+const sessions = ref<AdminSession[]>([])
 
 // Forms
 const profileForm = reactive({
@@ -297,8 +285,13 @@ async function sendPasswordReset() {
 }
 
 async function loadSessions() {
+  const userId = authStore.user?.id
+  if (!userId) return
   try {
-    sessions.value = await authService.getSessions()
+    // Show only THIS admin's own sessions (server-wide sessions live in the
+    // Security → Sessions view).
+    const res = await getSessions({ user_id: userId })
+    sessions.value = res.sessions
   } catch {
     sessions.value = []
     toast.error('Unable to load active sessions')

@@ -44,6 +44,27 @@
 
           <div class="pt-4 mt-4 border-t border-gray-200 dark:border-brand-800">
             <p class="px-3 mb-2 text-xs font-semibold text-gray-400 dark:text-brand-500 uppercase tracking-wider">
+              Security
+            </p>
+            <router-link
+              v-for="item in securityNavigation"
+              :key="item.name"
+              :to="item.to"
+              :class="[
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors duration-150',
+                isActiveRoute(item.to)
+                  ? 'bg-brand-50 dark:bg-brand-800 text-brand-700 dark:text-white font-medium'
+                  : 'text-gray-600 dark:text-brand-300 hover:bg-gray-100 dark:hover:bg-brand-800 hover:text-gray-900 dark:hover:text-white'
+              ]"
+              @click="closeSidebarOnMobile"
+            >
+              <i :class="['pi', item.icon, 'text-lg']"></i>
+              <span>{{ item.label }}</span>
+            </router-link>
+          </div>
+
+          <div class="pt-4 mt-4 border-t border-gray-200 dark:border-brand-800">
+            <p class="px-3 mb-2 text-xs font-semibold text-gray-400 dark:text-brand-500 uppercase tracking-wider">
               System
             </p>
             <router-link
@@ -209,7 +230,15 @@ const mainNavigation = [
   { name: 'dashboard', label: 'Dashboard',    icon: 'pi-th-large', to: { name: 'Dashboard'    } },
   { name: 'apps',      label: 'Applications', icon: 'pi-box',      to: { name: 'Applications' } },
   { name: 'users',     label: 'Users',        icon: 'pi-users',    to: { name: 'Users'        } },
-  { name: 'security',  label: 'Security',     icon: 'pi-shield',   to: { name: 'Security'     } },
+]
+
+const securityNavigation = [
+  { name: 'security-overview', label: 'Overview',     icon: 'pi-shield',        to: { name: 'Security'      } },
+  { name: 'security-events',   label: 'Events',       icon: 'pi-history',       to: { name: 'SecurityEvents' } },
+  { name: 'sessions',          label: 'Sessions',     icon: 'pi-desktop',       to: { name: 'Sessions'      } },
+  { name: 'blocked-ips',       label: 'Blocked IPs',  icon: 'pi-ban',           to: { name: 'BlockedIps'    } },
+  { name: 'alerts',            label: 'Alerts',       icon: 'pi-bell',          to: { name: 'Alerts'        } },
+  { name: 'reports',           label: 'Reports',      icon: 'pi-file',          to: { name: 'Reports'       } },
 ]
 
 const systemNavigation = [

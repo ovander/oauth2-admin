@@ -33,6 +33,10 @@ const routes: RouteRecordRaw[] = [
       { path: 'users/:id',  name: 'UserDetail',      component: () => import('@/views/users/UserDetailView.vue'),             props: true, meta: { title: 'User Details'     } },
       { path: 'security',   name: 'Security',        component: () => import('@/views/security/SecurityDashboardView.vue'),   meta: { title: 'Security'          } },
       { path: 'security/events', name: 'SecurityEvents', component: () => import('@/views/security/SecurityEventsView.vue'), meta: { title: 'Security Events'   } },
+      { path: 'security/sessions', name: 'Sessions', component: () => import('@/views/security/SessionsView.vue'), meta: { title: 'Active Sessions' } },
+      { path: 'security/blocked-ips', name: 'BlockedIps', component: () => import('@/views/security/BlockedIpsView.vue'), meta: { title: 'Blocked IPs', requiresSuperAdmin: true } },
+      { path: 'security/alerts', name: 'Alerts', component: () => import('@/views/security/AlertsView.vue'), meta: { title: 'Alerts', requiresSuperAdmin: true } },
+      { path: 'security/reports', name: 'Reports', component: () => import('@/views/security/ReportsView.vue'), meta: { title: 'Security Reports', requiresSuperAdmin: true } },
       { path: 'logs',       name: 'AdminLogs',       component: () => import('@/views/logs/AdminLogsView.vue'),               meta: { title: 'Admin Logs',      requiresSuperAdmin: true } },
       { path: 'settings',   name: 'Settings',        component: () => import('@/views/settings/SettingsView.vue'),            meta: { title: 'Settings'          } },
       { path: 'settings/profile', name: 'Profile',   component: () => import('@/views/settings/ProfileView.vue'),            meta: { title: 'My Profile'        } },
@@ -56,7 +60,7 @@ const router = createRouter({
 router.beforeEach(async (to, _from, next) => {
   // Update document title
   const title = to.meta.title as string | undefined
-  document.title = title ? `${title} | OAuth2 Admin` : 'OAuth2 Admin'
+  document.title = title ? `${title} | Socrate` : 'Socrate — Superadmin Portal'
 
   const authStore = useAuthStore()
 

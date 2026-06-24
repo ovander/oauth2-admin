@@ -60,20 +60,22 @@ A modern, production-ready **Superadmin Portal** for the [Socrate](https://githu
 - Bulk actions support
 
 ### Security & Audit
-- Real-time security event monitoring
-- Failed login attempt tracking
-- Brute force detection alerts
-- Suspicious activity notifications
-- Comprehensive admin audit logs
-- Export functionality for compliance
+- Security dashboard with threat metrics and a live event stream (SSE)
+- Security event log with filtering
+- Active session monitoring across all applications
+- Blocked-IP management and per-IP reputation lookup
+- Alert rules (create/edit/delete) and triggered-alert history with acknowledgement
+- Token analytics and geographic login activity
+- On-demand security report generation and download
+- Comprehensive admin audit logs with export
 
 ### Settings & Profile
 - Server configuration overview
 - Connection health checks
 - Feature toggles visibility
 - Profile management
-- Password change
-- Active session management
+- Email-based password reset
+- Own active-session overview
 - Dark/Light theme toggle
 
 ## Tech Stack

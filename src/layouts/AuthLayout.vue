@@ -70,10 +70,10 @@
         <!-- Mobile logo -->
         <div class="lg:hidden flex flex-col items-center justify-center mb-10">
           <div class="flex items-center gap-3 mb-1">
-            <div class="w-10 h-10 gradient-brand rounded-xl flex items-center justify-center">
-              <i class="pi pi-shield text-xl text-white"></i>
+            <div class="w-10 h-10 gradient-brand rounded-xl flex items-center justify-center overflow-hidden">
+              <img src="/socrate-logo.png" alt="Socrate" class="w-full h-full object-contain p-0.5" />
             </div>
-            <span class="text-xl font-bold text-gray-900 dark:text-white">OAuth2 Server</span>
+            <span class="text-xl font-bold text-gray-900 dark:text-white">Socrate</span>
           </div>
           <span class="text-[10px] font-semibold text-brand-600 dark:text-brand-400 uppercase tracking-widest">
             Superadmin Portal

@@ -3,7 +3,6 @@ import type {
   User,
   LoginRequest,
   LoginResponse,
-  Session,
 } from '@/types/auth'
 
 /**
@@ -40,11 +39,6 @@ export async function updateProfile(data: Partial<User>): Promise<User> {
   // Profile self-service updates are served by the public profile API
   // (the admin `/api/admin/profile` route is read-only).
   const response = await api.put<User>('/api/profile', data)
-  return response.data
-}
-
-export async function getSessions(): Promise<Session[]> {
-  const response = await api.get<Session[]>('/api/admin/sessions')
   return response.data
 }
 

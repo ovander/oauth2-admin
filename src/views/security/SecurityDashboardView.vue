@@ -48,9 +48,29 @@
           <div class="card">
             <div class="px-6 py-4 border-b border-gray-100 dark:border-brand-800 flex items-center justify-between">
               <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Recent Security Events</h3>
-              <router-link :to="{ name: 'SecurityEvents' }" class="text-sm text-brand-600 dark:text-brand-400 hover:underline">
-                View all →
-              </router-link>
+              <div class="flex items-center gap-4">
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 text-sm"
+                  :class="live ? 'text-success-600 dark:text-success-400' : 'text-gray-500 dark:text-brand-400'"
+                  @click="toggleLive"
+                >
+                  <span class="relative flex h-2 w-2">
+                    <span
+                      v-if="live"
+                      class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success-400 opacity-75"
+                    ></span>
+                    <span
+                      class="relative inline-flex rounded-full h-2 w-2"
+                      :class="live ? 'bg-success-500' : 'bg-gray-300 dark:bg-brand-600'"
+                    ></span>
+                  </span>
+                  {{ live ? 'Live' : 'Go live' }}
+                </button>
+                <router-link :to="{ name: 'SecurityEvents' }" class="text-sm text-brand-600 dark:text-brand-400 hover:underline">
+                  View all →
+                </router-link>
+              </div>
             </div>
             <div class="divide-y divide-gray-100 dark:divide-brand-800">
               <div
@@ -123,8 +143,88 @@
                 class="w-full p-button-outlined"
                 @click="$router.push({ name: 'Users', query: { status: 'locked' } })"
               />
+              <Button
+                label="Active Sessions"
+                icon="pi pi-desktop"
+                class="w-full p-button-outlined"
+                @click="$router.push({ name: 'Sessions' })"
+              />
+              <Button
+                label="Blocked IPs"
+                icon="pi pi-ban"
+                class="w-full p-button-outlined"
+                @click="$router.push({ name: 'BlockedIps' })"
+              />
+              <Button
+                label="Alert Rules"
+                icon="pi pi-bell"
+                class="w-full p-button-outlined"
+                @click="$router.push({ name: 'Alerts' })"
+              />
+              <Button
+                label="Generate Report"
+                icon="pi pi-file"
+                class="w-full p-button-outlined"
+                @click="$router.push({ name: 'Reports' })"
+              />
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Token analytics + geographic activity -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+        <!-- Token Analytics -->
+        <div class="card p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white">Token Analytics</h3>
+            <span class="text-xs text-gray-400 dark:text-brand-500">last 24h</span>
+          </div>
+          <div v-if="tokenStats" class="grid grid-cols-3 gap-4">
+            <div>
+              <p class="text-2xl font-bold text-gray-900 dark:text-white">{{ tokenTotalIssued }}</p>
+              <p class="text-xs text-gray-500 dark:text-brand-400 mt-0.5">Issued</p>
+            </div>
+            <div>
+              <p class="text-2xl font-bold text-gray-900 dark:text-white">{{ tokenStats.refreshed }}</p>
+              <p class="text-xs text-gray-500 dark:text-brand-400 mt-0.5">Refreshed</p>
+            </div>
+            <div>
+              <p class="text-2xl font-bold text-error-600 dark:text-error-400">{{ tokenStats.revoked }}</p>
+              <p class="text-xs text-gray-500 dark:text-brand-400 mt-0.5">Revoked</p>
+            </div>
+            <div class="col-span-3 pt-3 mt-1 border-t border-gray-100 dark:border-brand-800 flex justify-between text-xs text-gray-500 dark:text-brand-400">
+              <span>Expired-token attempts: <span class="font-medium text-gray-700 dark:text-gray-300">{{ tokenStats.expired_usage_attempts }}</span></span>
+              <span>Invalid-token attempts: <span class="font-medium text-gray-700 dark:text-gray-300">{{ tokenStats.invalid_usage_attempts }}</span></span>
+            </div>
+          </div>
+          <p v-else class="text-sm text-gray-500 dark:text-brand-400">Token analytics unavailable.</p>
+        </div>
+
+        <!-- Geographic Activity -->
+        <div class="card p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white">Geographic Activity</h3>
+            <span class="text-xs text-gray-400 dark:text-brand-500">last 7d</span>
+          </div>
+          <div v-if="geo && !geo.geo_configured" class="text-sm text-gray-500 dark:text-brand-400">
+            <i class="pi pi-info-circle mr-1"></i>
+            Geo-IP database is not configured on the server.
+          </div>
+          <div v-else-if="geo && geo.by_country.length" class="space-y-2">
+            <div
+              v-for="c in geo.by_country.slice(0, 6)"
+              :key="c.country_code"
+              class="flex items-center justify-between text-sm"
+            >
+              <span class="text-gray-700 dark:text-gray-300">{{ c.country_name || c.country_code }}</span>
+              <span class="text-gray-500 dark:text-brand-400">
+                {{ c.login_count }} logins
+                <span v-if="c.failed_count" class="text-error-500">· {{ c.failed_count }} failed</span>
+              </span>
+            </div>
+          </div>
+          <p v-else class="text-sm text-gray-500 dark:text-brand-400">No geographic activity in this period.</p>
         </div>
       </div>
     </template>
@@ -132,7 +232,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import Button from 'primevue/button'
 import PageHeader  from '@/components/ui/PageHeader.vue'
 import LoadingState from '@/components/ui/LoadingState.vue'
@@ -140,15 +240,28 @@ import StatCard    from '@/components/dashboard/StatCard.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import * as securityService from '@/services/securityService'
 import * as settingsService from '@/services/settingsService'
+import * as monitoringService from '@/services/monitoringService'
 import { formatRelativeTime } from '@/utils/formatDate'
 import { deverror } from '@/utils/devlog'
 import type { SecurityEvent, ThreatMetricsResponse } from '@/types/security'
+import type { TokenStatsResponse, GeoAnalyticsResponse, RealtimeEventMessage } from '@/types/monitoring'
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const loading             = ref(true)
 const loadError           = ref<string | null>(null)
 const stats               = ref<ThreatMetricsResponse | null>(null)
 const recentEvents        = ref<SecurityEvent[]>([])
+const tokenStats          = ref<TokenStatsResponse | null>(null)
+const geo                 = ref<GeoAnalyticsResponse | null>(null)
+
+// Live event stream (SSE) state
+const live          = ref(false)
+let eventStream: { close(): void } | null = null
+
+const tokenTotalIssued = computed(() => {
+  const i = tokenStats.value?.issued
+  return i ? i.access_tokens + i.refresh_tokens + i.id_tokens : 0
+})
 
 // Checklist (F-18) — driven by GET /api/admin/settings/config
 const checklistLoading = ref(false)
@@ -198,6 +311,47 @@ async function loadChecklist() {
   }
 }
 
+async function loadTokenStats() {
+  try {
+    tokenStats.value = await monitoringService.getTokenStats('24h')
+  } catch (err) {
+    deverror('Failed to load token stats', err)
+  }
+}
+
+async function loadGeo() {
+  try {
+    geo.value = await monitoringService.getGeoAnalytics('7d')
+  } catch (err) {
+    deverror('Failed to load geo analytics', err)
+  }
+}
+
+// ─── Live event stream (SSE) ────────────────────────────────────────────────────
+function toggleLive() {
+  if (live.value) {
+    stopLive()
+    return
+  }
+  live.value = true
+  eventStream = monitoringService.connectSecurityEventStream(
+    (msg: RealtimeEventMessage) => {
+      const data = msg.data as SecurityEvent
+      // Only prepend genuine security events (ignore keep-alives / other types).
+      if (data && typeof data.id === 'number' && data.event_type) {
+        recentEvents.value = [data, ...recentEvents.value].slice(0, 10)
+      }
+    },
+    { onError: (err) => { deverror('Event stream error', err); stopLive() } },
+  )
+}
+
+function stopLive() {
+  live.value = false
+  eventStream?.close()
+  eventStream = null
+}
+
 // ─── Display helpers ──────────────────────────────────────────────────────────
 function getEventLabel(type: string): string { return securityService.securityEventLabels[type] || type }
 
@@ -217,5 +371,9 @@ function getSeverityStatus(s: string): 'info' | 'warning' | 'error' { return ({ 
 onMounted(() => {
   loadSecurityData()
   loadChecklist()
+  loadTokenStats()
+  loadGeo()
 })
+
+onBeforeUnmount(stopLive)
 </script>
