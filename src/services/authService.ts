@@ -1,15 +1,20 @@
-import api from './api'
+import api, { issuerApi } from './api'
 import type { User } from '@/types/auth'
 
 // Admin login is no longer a first-party password request. Authentication is an
 // Authorization Code + PKCE flow delegated to the AS hosted login — see
 // services/oauth.ts and the auth store's loginRedirect()/handleCallback().
+//
+// Endpoint → instance:
+//   • api       → admin RESOURCE server (/api/admin/* on :8081, Bearer)
+//   • issuerApi → OIDC issuer / public API (/api/auth/*, /api/profile on :8080,
+//                 carries credentials so the refresh cookie rides along)
 
 export async function logout(): Promise<void> {
-  // Revoke the refresh token + clear the HttpOnly cookie server-side. The route
-  // lives on the public auth API. Best-effort — the store always clears client
-  // state regardless of the outcome.
-  await api.post('/api/auth/logout').catch(() => {/* swallow */})
+  // Revoke the session + clear the HttpOnly refresh cookie server-side. This
+  // lives on the ISSUER (:8080) where the cookie is set, NOT the admin API.
+  // Best-effort — the store always clears client state regardless of outcome.
+  await issuerApi.post('/api/auth/logout').catch(() => {/* swallow */})
 }
 
 export async function getProfile(): Promise<User> {
@@ -47,15 +52,15 @@ export async function changePassword(currentPassword: string, newPassword: strin
 }
 
 export async function updateProfile(data: Partial<User>): Promise<User> {
-  // Profile self-service updates are served by the public profile API
-  // (the admin `/api/admin/profile` route is read-only).
-  const response = await api.put<User>('/api/profile', data)
+  // Profile self-service is a public-API flow on the issuer (:8080); the admin
+  // `/api/admin/profile` route is read-only.
+  const response = await issuerApi.put<User>('/api/profile', data)
   return response.data
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {
-  // Password reset is a public-API flow (no admin-side route exists).
-  await api.post('/api/auth/request-password-reset', { email })
+  // Password reset is a public-API (issuer) flow — no admin-side route exists.
+  await issuerApi.post('/api/auth/request-password-reset', { email })
 }
 
 /**
@@ -64,5 +69,5 @@ export async function requestPasswordReset(email: string): Promise<void> {
  * request body — it is NEVER forwarded in a query parameter (F-08).
  */
 export async function resetPassword(token: string, password: string): Promise<void> {
-  await api.post('/api/auth/reset-password', { token, password })
+  await issuerApi.post('/api/auth/reset-password', { token, password })
 }
