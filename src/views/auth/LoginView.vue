@@ -15,6 +15,11 @@
       </p>
     </div>
 
+    <!-- Success notice after a forced password change (?changed=1) -->
+    <Message v-if="passwordChanged" severity="success" :closable="false" class="w-full mb-5">
+      Your password was updated. Please sign in again.
+    </Message>
+
     <!-- Error surfaced from a failed callback (?error=…) or a failed redirect start -->
     <Message v-if="authStore.error" severity="error" :closable="false" class="w-full mb-5">
       {{ authStore.error }}
@@ -52,7 +57,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
@@ -62,6 +67,7 @@ const route     = useRoute()
 const authStore = useAuthStore()
 
 const isLoading = ref(false)
+const passwordChanged = computed(() => route.query.changed === '1')
 
 /** Validate redirect param — only allow internal relative paths (F-04). */
 function safeRedirect(raw: string | undefined | null): string | undefined {

@@ -119,6 +119,19 @@ export async function mockUnauthenticated(page: Page) {
   await mockRefreshFail(page)
 }
 
+/**
+ * Simulate a must-change-password admin: the cold-load refresh succeeds, but
+ * every /api/admin/* call (here, the profile fetch) returns
+ * `403 password_change_required` until the password is changed.
+ */
+export async function mockMustChangePassword(page: Page) {
+  await mockRefreshSuccess(page)
+  await page.route(`${API}/api/admin/profile`, route =>
+    json(route, { error: 'password_change_required' }, 403),
+  )
+  await page.route(`${API}/api/admin/change-password`, route => json(route, {}))
+}
+
 /** Password reset — always succeeds. */
 export async function mockResetPasswordSuccess(page: Page) {
   await page.route(`${API}/api/auth/reset-password`, route => json(route, {}))

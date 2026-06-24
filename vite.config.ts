@@ -128,6 +128,7 @@ export default defineConfig(({ mode }) => ({
         'src/services/authService.ts',
         'src/services/oauth.ts',
         'src/services/pkce.ts',
+        'src/services/adminGuards.ts',
         'src/stores/authStore.ts',
         'src/composables/useClipboard.ts',
         'src/composables/useSessionTimeout.ts',

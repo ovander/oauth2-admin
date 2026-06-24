@@ -2,6 +2,11 @@ import axios, { type AxiosInstance, type AxiosError, type InternalAxiosRequestCo
 import router from '@/router/router'
 import { ADMIN_API_URL } from '@/utils/secureConfig'
 import { refreshAccessToken } from '@/services/oauth'
+import {
+  requireElevation,
+  flagPasswordChangeRequired,
+  challengeCode,
+} from '@/services/adminGuards'
 import { deverror, devwarn } from '@/utils/devlog'
 
 // ─── In-memory token store (F-01) ────────────────────────────────────────────
@@ -54,17 +59,17 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
+    const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean; _elevated?: boolean }
 
     // ── 401 Unauthorized → attempt silent refresh via HttpOnly cookie ──────────
     //
-    // The token exchange and refresh endpoints return 401 for a genuinely
-    // invalid/expired refresh session — NOT for an expired access token.
-    // Re-running the refresh dance on them would mask the original error and
-    // could loop, so they are excluded. (They also use a bare axios instance in
-    // services/oauth.ts, so they never reach this interceptor — this guard is
-    // belt-and-braces.)
-    const isAuthFlowEndpoint = /\/(oauth\/token|auth\/refresh)/.test(original.url ?? '')
+    // The token/refresh endpoints return 401 for a genuinely invalid/expired
+    // refresh session, and /api/admin/elevate returns 401 for `mfa_required` /
+    // wrong code — NOT for an expired access token. Re-running the refresh dance
+    // on them would mask the original error and could loop, so they are excluded.
+    // (The token/refresh calls also use a bare axios instance in
+    // services/oauth.ts, so they never reach this interceptor anyway.)
+    const isAuthFlowEndpoint = /\/(oauth\/token|auth\/refresh|admin\/(elevate|change-password))/.test(original.url ?? '')
 
     if (error.response?.status === 401 && !original._retry && !isAuthFlowEndpoint) {
       if (isRefreshing) {
@@ -97,6 +102,30 @@ api.interceptors.response.use(
       } finally {
         isRefreshing = false
       }
+    }
+
+    // ── 403 step-up required → prompt for re-auth, then retry once ─────────────
+    // (ADMIN-SPA-MIGRATION.md §5). requireElevation() resolves once a fresh
+    // elevated token is in tokenStore; we replay the original request with it.
+    const challenge = error.response?.status === 403 ? challengeCode(error) : undefined
+
+    if (challenge === 'elevation_required' && !original._elevated) {
+      original._elevated = true
+      try {
+        await requireElevation()
+        if (original.headers) original.headers.Authorization = `Bearer ${tokenStore.get()}`
+        return api(original)
+      } catch {
+        // Admin dismissed the prompt — surface the original 403.
+        return Promise.reject(error)
+      }
+    }
+
+    // ── 403 forced password change → flag it; the router guard + global watcher
+    //    route the admin to the change-password page (ADMIN-SPA-MIGRATION.md §6).
+    if (challenge === 'password_change_required') {
+      flagPasswordChangeRequired()
+      return Promise.reject(error)
     }
 
     // ── 403 Forbidden — log only in dev (F-10) ─────────────────────────────────
