@@ -509,7 +509,7 @@ async function refreshHealth() {
   healthLoading.value = true
   try {
     health.value = await getSystemHealth()
-  } catch (error) {
+  } catch {
     showError('Failed to refresh health status')
   } finally {
     healthLoading.value = false
@@ -520,7 +520,7 @@ async function loadTrends(days: number) {
   trendDays.value = days
   try {
     trends.value = await getLoginTrends(days)
-  } catch (error) {
+  } catch {
     showError('Failed to load login trends')
   }
 }

@@ -174,12 +174,9 @@ describe('api.ts — response interceptor: 401 → silent refresh', () => {
   })
 
   it('rejects all queued requests when refresh fails', async () => {
-    let aCalls = 0
-    let bCalls = 0
-
     server.use(
-      http.get(`${BASE}/api/resource-a`, () => { aCalls++; return auth401() }),
-      http.get(`${BASE}/api/resource-b`, () => { bCalls++; return auth401() }),
+      http.get(`${BASE}/api/resource-a`, () => auth401()),
+      http.get(`${BASE}/api/resource-b`, () => auth401()),
       http.post(REFRESH_URL,             () => HttpResponse.json({}, { status: 401 })),
     )
 

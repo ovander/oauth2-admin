@@ -48,6 +48,10 @@ cypress/screenshots/
 # ---- TypeScript ----
 *.tsbuildinfo
 .tsbuild/
+# Compiled output of vite.config.ts must never be committed — it shadows the
+# real .ts config and drifts out of sync.
+vite.config.js
+vite.config.d.ts
 
 # ---- Editor / IDE ----
 .vscode/*

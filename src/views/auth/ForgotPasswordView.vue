@@ -101,7 +101,7 @@ async function handleSubmit() {
   try {
     await authService.requestPasswordReset(email.value)
     submitted.value = true
-  } catch (err: any) {
+  } catch {
     // Don't reveal if email exists or not
     submitted.value = true
   } finally {
