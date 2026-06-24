@@ -55,6 +55,13 @@ npm run test:run         # unit + integration tests
   header; the API is configured to reject cross-site requests.
 - **No XSS sinks:** the codebase uses no `v-html`, `innerHTML`, `eval`, or
   `document.write`; the ESLint gate prevents regressions.
+- **Canonical, tested CSP + Trusted Types** (`src/security/csp.ts`): the strict
+  production policy (`default-src 'none'`; `script-src 'self'` with no
+  `unsafe-inline`/`unsafe-eval`; `object-src`/`frame-ancestors 'none'`;
+  `base-uri`/`form-action 'self'`) is the single source of truth, unit-tested as
+  a deploy gate, and served by the dev + `vite preview` servers so local == prod.
+  Trusted Types (`require-trusted-types-for 'script'`) ships as a Report-Only
+  rollout — see `docs/security-headers.md`.
 - **Open-redirect protection:** post-login redirects accept only internal,
   single-leading-slash relative paths (`LoginView`/`CallbackView`
   `safeRedirect`/`safeReturn`).
@@ -64,15 +71,25 @@ npm run test:run         # unit + integration tests
 
 ## Deployment requirements (host-provided)
 
-These cannot be set from a static SPA and MUST be delivered as HTTP response
-headers by the reverse proxy (see `index.html` and `docs/security-headers.md`):
+The policy is defined and tested in-repo (`src/security/csp.ts`), but the static
+SPA can't set its own response headers in production — the reverse proxy MUST
+deliver them, mirroring the canonical module (snippets in
+`docs/security-headers.md`):
 
-- `Content-Security-Policy` (default-src 'none'; script-src 'self'; …;
-  `frame-ancestors 'none'`; `connect-src` limited to the API origin)
-- `X-Frame-Options: DENY` and `X-Content-Type-Options: nosniff`
+- `Content-Security-Policy` — the strict `productionCsp()` (default-src 'none';
+  script-src 'self'; object-src/frame-ancestors 'none'; connect-src limited to
+  the API origin)
+- `Content-Security-Policy-Report-Only` — `productionCspReportOnly()` for the
+  Trusted Types soak, until promoted
+- `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Cross-Origin-Opener-Policy: same-origin`
 - `Referrer-Policy: strict-origin-when-cross-origin`
 - `Permissions-Policy: geolocation=(), microphone=(), camera=()`
 - Serve only over HTTPS (HSTS recommended).
+
+CI fails the build if the canonical policy loses a hardening directive
+(`csp.spec.ts`), and the e2e `headers.spec.ts` asserts the served app actually
+carries them.
 
 The single configured origin (`VITE_ADMIN_API_URL`) must front both the Admin
 API (`/api/admin/*`) and the public OAuth API (`/api/auth/*`, `/api/profile`)

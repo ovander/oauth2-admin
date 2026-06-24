@@ -1,11 +1,18 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 import { readFileSync } from 'node:fs'
+import { devCsp, productionCsp, productionCspReportOnly, SECURITY_HEADERS, originOf } from './src/security/csp'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  // Origin the built app talks to (the API gateway) — added to the preview
+  // server's connect-src so `vite preview` runs under the real production CSP.
+  const env = loadEnv(mode, process.cwd(), '')
+  const apiOrigin = originOf(env.VITE_ADMIN_API_URL)
+
+  return {
     base: mode === 'production' ? '/admin/' : '/',
 
   // Inject frontend version as compile-time constants (tree-shaken in prod).
@@ -34,21 +41,13 @@ export default defineConfig(({ mode }) => ({
     port: 5173,
     strictPort: true,   // fail fast instead of silently drifting to 5174
 
-    // Dev-only CSP delivered via Vite's own HTTP response headers.
-    // Production CSP is set by Caddy/Nginx — see deployment-runbook.docx.
-    // 'unsafe-eval'   — required by Vite HMR runtime
-    // 'unsafe-inline' — required by Vite HMR script injection
-    // ws://*          — required by Vite WebSocket hot-reload channel
+    // Dev CSP + hardening headers from the canonical source (src/security/csp.ts).
+    // Dev keeps 'unsafe-eval'/'unsafe-inline' + ws:// for Vite HMR; production is
+    // the strict productionCsp() served by the reverse proxy and exercised by the
+    // preview server below.
     headers: {
-      'Content-Security-Policy': [
-        "default-src 'self'",
-        "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
-        "style-src 'self' 'unsafe-inline'",
-        "connect-src 'self' ws://localhost:5173 http://localhost:5173 http://localhost:8080 http://localhost:8081",
-        "img-src 'self' data: blob:",
-        "font-src 'self'",
-        "frame-ancestors 'none'",
-      ].join('; '),
+      'Content-Security-Policy': devCsp(),
+      ...SECURITY_HEADERS,
     },
 
     proxy: {
@@ -66,6 +65,17 @@ export default defineConfig(({ mode }) => ({
         target:       'http://localhost:8081',
         changeOrigin: true,
       },
+    },
+  },
+
+  // Preview server (`vite preview`) serves the production build under the REAL
+  // production CSP + the Trusted Types Report-Only policy — the place to soak-test
+  // strict CSP / Trusted Types violations before promoting them at the proxy.
+  preview: {
+    headers: {
+      'Content-Security-Policy':             productionCsp(apiOrigin),
+      'Content-Security-Policy-Report-Only': productionCspReportOnly(apiOrigin),
+      ...SECURITY_HEADERS,
     },
   },
 
@@ -129,6 +139,7 @@ export default defineConfig(({ mode }) => ({
         'src/services/oauth.ts',
         'src/services/pkce.ts',
         'src/services/adminGuards.ts',
+        'src/security/csp.ts',
         'src/stores/authStore.ts',
         'src/composables/useClipboard.ts',
         'src/composables/useSessionTimeout.ts',
@@ -150,5 +161,6 @@ export default defineConfig(({ mode }) => ({
         lines:      80,
       },
     },
-  },
-}))
+  }
+  }
+})
