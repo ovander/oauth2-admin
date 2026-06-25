@@ -5,28 +5,18 @@ import (
 	"net/http"
 )
 
-// NewServer builds the BFF HTTP handler.
+// NewServer builds the BFF HTTP handler for the given config (no background
+// sweepers — use newApp + startBackground for the full lifecycle in main).
 //
-// It is a strict allowlist — NEVER an open proxy. Only two route families are
-// served; everything else is 404:
+// It is a strict allowlist — NEVER an open proxy:
 //
-//	GET /bff/healthz   → liveness
-//	    /api/admin/*   → SSE-aware reverse proxy to the admin API upstream
+//	GET  /bff/healthz   liveness (always)
+//	     /bff/login,/bff/callback,/bff/session,/bff/logout   (Phase 2 only)
+//	     /api/admin/*   reverse proxy (session→token injection in Phase 2)
 //
-// Phase 2 adds /bff/login, /bff/callback, /bff/session, /bff/logout and wraps
-// the admin proxy with session→token injection (gated on Config.Phase2Enabled).
+// everything else → 404.
 func NewServer(cfg *Config) http.Handler {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /bff/healthz", handleHealthz)
-
-	mux.Handle("/api/admin/", newAdminProxy(cfg.AdminUpstream))
-
-	// Catch-all: anything outside the allowlist is 404. This keeps the BFF an
-	// allowlist and prevents it from ever acting as an open proxy.
-	mux.HandleFunc("/", http.NotFound)
-
-	return mux
+	return newApp(cfg).handler()
 }
 
 func handleHealthz(w http.ResponseWriter, _ *http.Request) {

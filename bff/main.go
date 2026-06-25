@@ -2,9 +2,12 @@
 // console. It binds loopback only and is the sole client of the admin API for
 // this console.
 //
-// Phase 1 (this build): an allowlisted, SSE-aware reverse proxy that forwards
-// the browser's bearer token unchanged — a no-behavior-change skeleton that can
-// be deployed ahead of the cookie-session migration.
+// Phase 1 (BFF_CLIENT_ID unset): an allowlisted, SSE-aware reverse proxy that
+// forwards the browser's bearer token unchanged.
+//
+// Phase 2 (BFF_CLIENT_ID set): server-side sessions — Authorization-Code + PKCE
+// login, an opaque HttpOnly session cookie, and server-side token injection on
+// the admin proxy so the browser never holds a token.
 package main
 
 import (
@@ -23,14 +26,17 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	srv := &http.Server{
-		Addr:              cfg.ListenAddr,
-		Handler:           NewServer(cfg),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	a := newApp(cfg)
+	a.startBackground(ctx)
+
+	srv := &http.Server{
+		Addr:              cfg.ListenAddr,
+		Handler:           a.handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 
 	go func() {
 		log.Printf("socrate-admin-bff listening on %s → admin upstream %s (phase2=%v)",
