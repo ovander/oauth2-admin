@@ -1,19 +1,26 @@
-# Socrate — Superadmin Portal
+<p align="center">
+  <img src="./public/socrate-logo.png" alt="Socrate" width="96" />
+</p>
 
-A modern, production-ready **Superadmin Portal** for the
-[Socrate](https://github.com/ovander/go-oauth2) OAuth2 / OpenID Connect platform,
-built with Vue 3, PrimeVue 4, and Tailwind CSS 4. It is the privileged admin
-surface for the Socrate server itself — a **Tier-0** asset held to the same
-hardening bar as the backend.
+<h1 align="center">Socrate — Superadmin Portal</h1>
+
+<p align="center">
+  The privileged admin console for the
+  <a href="https://github.com/ovander/go-oauth2">Socrate</a> OAuth2 / OpenID
+  Connect platform — built with Vue 3, PrimeVue 4 and Tailwind CSS 4, and held to
+  the same <strong>Tier-0</strong> hardening bar as the backend.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Vue.js-3.5-green" alt="Vue.js">
+  <img src="https://img.shields.io/badge/PrimeVue-4.2-blue" alt="PrimeVue">
+  <img src="https://img.shields.io/badge/Tailwind-4.0-cyan" alt="Tailwind CSS">
+  <img src="https://img.shields.io/badge/TypeScript-5.6-blue" alt="TypeScript">
+</p>
 
 > ⚠️ **Superadmins only.** This portal manages the OAuth2 server — applications,
 > global users, and server-wide security. App Admins should use their
 > application's own admin interface.
-
-![Vue.js](https://img.shields.io/badge/Vue.js-3.5-green)
-![PrimeVue](https://img.shields.io/badge/PrimeVue-4.2-blue)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind-4.0-cyan)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)
 
 ## Documentation
 
