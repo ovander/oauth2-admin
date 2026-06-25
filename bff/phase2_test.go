@@ -78,6 +78,17 @@ func phase2Harness(t *testing.T) (http.Handler, *app, *capture, string, string) 
 	t.Cleanup(admin.Close)
 
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Authenticated issuer self-service: echo back what the BFF forwarded so
+		// the test can assert the injected bearer + stripped cookie.
+		if r.URL.Path == "/api/profile" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"auth":   r.Header.Get("Authorization"),
+				"cookie": r.Header.Get("Cookie"),
+				"method": r.Method,
+			})
+			return
+		}
 		if r.URL.Path != "/oauth/token" {
 			http.NotFound(w, r)
 			return
@@ -327,6 +338,57 @@ func TestElevation(t *testing.T) {
 	h.ServeHTTP(rr, req)
 	if gotAuth, _, _ := cap.get(); gotAuth != "Bearer "+elevatedJWT {
 		t.Errorf("after elevate upstream auth = %q, want elevated token", gotAuth)
+	}
+}
+
+func TestIssuerProfileProxy(t *testing.T) {
+	h, a, _, accessJWT, _ := phase2Harness(t)
+	// Seed a logged-in session with a known CSRF token.
+	sid, _ := randomToken(16)
+	now := time.Now()
+	a.store.Put(&Session{
+		ID: sid, AccessToken: accessJWT, RefreshToken: "refresh-1",
+		AccessExpiry: now.Add(5 * time.Minute), CSRF: "csrf-1", Created: now, LastSeen: now,
+		User: UserInfo{Sub: "user-1"},
+	})
+	cookie := &http.Cookie{Name: a.cookieName(), Value: sid}
+
+	// GET /api/profile → injected bearer reaches the issuer; cookie stripped.
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/profile", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/profile = %d, want 200", rr.Code)
+	}
+	var got struct{ Auth, Cookie, Method string }
+	_ = json.Unmarshal(rr.Body.Bytes(), &got)
+	if got.Auth != "Bearer "+accessJWT {
+		t.Errorf("issuer auth = %q, want injected session bearer", got.Auth)
+	}
+	if got.Cookie != "" {
+		t.Errorf("session cookie leaked to the issuer: %q", got.Cookie)
+	}
+
+	// PUT without CSRF → 403; with CSRF → proxied.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/profile", strings.NewReader(`{"name":"x"}`))
+	req.AddCookie(cookie)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("PUT without CSRF = %d, want 403", rr.Code)
+	}
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/profile", strings.NewReader(`{"name":"x"}`))
+	req.AddCookie(cookie)
+	req.Header.Set("X-CSRF-Token", "csrf-1")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PUT with CSRF = %d, want 200", rr.Code)
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &got)
+	if got.Method != http.MethodPut {
+		t.Errorf("issuer saw method %q, want PUT", got.Method)
 	}
 }
 

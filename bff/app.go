@@ -17,17 +17,19 @@ type app struct {
 	adminProxy *httputil.ReverseProxy
 
 	// Phase 2 (nil in Phase 1)
-	store  SessionStore
-	logins *loginStore
-	oauth  *oauthClient
+	store       SessionStore
+	logins      *loginStore
+	oauth       *oauthClient
+	issuerProxy *httputil.ReverseProxy // authenticated issuer self-service (e.g. /api/profile)
 }
 
 func newApp(cfg *Config) *app {
-	a := &app{cfg: cfg, adminProxy: newAdminProxy(cfg.AdminUpstream)}
+	a := &app{cfg: cfg, adminProxy: newReverseProxy(cfg.AdminUpstream)}
 	if cfg.Phase2Enabled() {
 		a.store = newMemStore(cfg.SessionIdle, cfg.SessionAbsolute)
 		a.logins = newLoginStore(10 * time.Minute)
 		a.oauth = newOAuthClient(cfg.OAuthUpstream, cfg.ClientID, cfg.ClientSecret)
+		a.issuerProxy = newReverseProxy(cfg.OAuthUpstream)
 	}
 	return a
 }
@@ -44,6 +46,11 @@ func (a *app) handler() http.Handler {
 		mux.HandleFunc("GET /bff/session", a.handleSession)
 		mux.HandleFunc("POST /bff/logout", a.handleLogout)
 		mux.HandleFunc("POST /bff/elevate", a.handleElevate)
+
+		// Authenticated issuer self-service, allowlisted one route at a time so
+		// the BFF never becomes an open proxy to the issuer. Profile read/update
+		// live on the issuer (:8080), not the admin API.
+		mux.HandleFunc("/api/profile", a.handleIssuerProxy)
 	}
 
 	// Admin API: session→token injection in Phase 2, pass-through otherwise.
@@ -216,22 +223,34 @@ func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleAdminProxy(w http.ResponseWriter, r *http.Request) {
+	a.proxyWithSession(w, r, a.adminProxy)
+}
+
+// handleIssuerProxy serves allowlisted, authenticated issuer self-service routes
+// (e.g. /api/profile) through the same session→token injection as the admin
+// proxy, so profile updates are fully cookie-only — no bearer in the browser.
+func (a *app) handleIssuerProxy(w http.ResponseWriter, r *http.Request) {
+	a.proxyWithSession(w, r, a.issuerProxy)
+}
+
+// proxyWithSession injects the session's bearer onto the request and forwards it
+// to the upstream, stripping the session cookie so it never leaks. State-changing
+// methods must carry a matching CSRF token (defense in depth on top of
+// SameSite=Strict). When there is no session it falls back to a pass-through so
+// the BFF can deploy before the SPA switches to cookies (dual mode).
+func (a *app) proxyWithSession(w http.ResponseWriter, r *http.Request, proxy *httputil.ReverseProxy) {
 	// Phase 1 (no sessions): pure pass-through.
 	if a.store == nil {
-		a.adminProxy.ServeHTTP(w, r)
+		proxy.ServeHTTP(w, r)
 		return
 	}
 
 	s, ok := a.sessionFromRequest(r)
 	if !ok {
-		// Dual mode: no session → forward the browser's request unchanged, so
-		// the BFF can deploy before the SPA switches to cookies.
-		a.adminProxy.ServeHTTP(w, r)
+		proxy.ServeHTTP(w, r)
 		return
 	}
 
-	// CSRF: double-submit on state-changing methods (defense in depth on top of
-	// SameSite=Strict).
 	if isUnsafeMethod(r.Method) {
 		s.mu.Lock()
 		want := s.CSRF
@@ -252,8 +271,8 @@ func (a *app) handleAdminProxy(w http.ResponseWriter, r *http.Request) {
 	a.touch(s)
 
 	r.Header.Set("Authorization", "Bearer "+access)
-	r.Header.Del("Cookie") // never leak the session cookie to the upstream admin API
-	a.adminProxy.ServeHTTP(w, r)
+	r.Header.Del("Cookie") // never leak the session cookie to the upstream
+	proxy.ServeHTTP(w, r)
 }
 
 // ── Session helpers ───────────────────────────────────────────────────────────
