@@ -11,28 +11,34 @@ A modern, production-ready **Superadmin Portal** for the [Socrate](https://githu
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Port 8081 (Admin API)                        │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  SUPERADMIN PORTAL (this frontend)                        │  │
-│  │  • Manages OAuth2 server itself                           │  │
-│  │  • Creates/manages applications                           │  │
-│  │  • Global user administration                             │  │
-│  │  • Login: email + password (no app context)               │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+The console is a **cookie-session SPA** fronted by a Go **Backend-for-Frontend
+(BFF)**. The browser holds no OAuth tokens — only an opaque, HttpOnly session
+cookie. The BFF is the confidential OAuth client: it runs the Authorization Code
++ PKCE flow server-side and injects the bearer onto every upstream call. Every
+authenticated request the browser makes is same-origin.
 
-┌─────────────────────────────────────────────────────────────────┐
-│                    Port 8080 (OAuth2 API)                       │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  APP USERS & APP ADMINS                                   │  │
-│  │  • App Admins: Manage users within their specific app     │  │
-│  │  • App Users: Regular end-users                           │  │
-│  │  • Login: email + password + app_client_id                │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
 ```
+                      admin.vandermoten.eu (Caddy — only public listener)
+  ┌─────────┐ HTTPS   ┌────────────────────────────────────────────────┐
+  │ Browser │ ──────▶ │ /              → built SPA (file_server)         │
+  │ cookie  │         │ /bff/*  /api/admin/*  /api/profile → admin BFF   │
+  │ + csrf  │         └────────────────────────────────────────────────┘
+  └─────────┘                              │ loopback
+                                           ▼
+                            ┌────────────────────────────┐
+                            │ admin BFF (Go, stdlib)      │
+                            │  • confidential OAuth client│
+                            │  • server-side sessions     │
+                            │  • injects Bearer, strips   │
+                            │    the session cookie        │
+                            └────────────────────────────┘
+                          :8081 admin API   │   :8080 Socrate issuer
+```
+
+The admin API (`:8081`) is loopback-only — the BFF is its sole client.
+
+📖 **Full design, sequence diagrams and security properties:
+[`docs/architecture.md`](docs/architecture.md).**
 
 ## Features
 
@@ -94,6 +100,14 @@ A modern, production-ready **Superadmin Portal** for the [Socrate](https://githu
 ## Project Structure
 
 ```
+.
+├── bff/                      # Go BFF (stdlib only) — confidential OAuth client
+├── deploy/                   # Caddy + systemd + scripts for production
+├── docs/                     # architecture.md, security-headers.md
+└── src/                      # the Vue SPA (below)
+```
+
+```
 src/
 ├── assets/
 │   └── tailwind.css          # Tailwind configuration and custom styles
@@ -117,10 +131,15 @@ src/
 │   └── AuthLayout.vue        # Authentication pages layout
 ├── router/
 │   └── router.ts             # Route definitions and guards
+├── security/
+│   └── csp.ts                # Canonical CSP + Trusted Types policy
 ├── services/                 # API services
-│   ├── api.ts                # Axios instance with interceptors
+│   ├── api.ts                # Same-origin admin client + interceptors (CSRF, 401)
+│   ├── session.ts            # BFF control-plane client (/bff/*) + csrfStore
+│   ├── adminGuards.ts        # Step-up (elevation) + forced-password-change state
+│   ├── authService.ts        # Profile / change-password / reset
+│   ├── monitoringService.ts  # Security dashboards + SSE event stream
 │   ├── applicationService.ts
-│   ├── authService.ts
 │   ├── dashboardService.ts
 │   ├── securityService.ts
 │   ├── settingsService.ts
@@ -175,24 +194,33 @@ npm run preview
 
 ### Environment Variables
 
-Create a `.env` file in the root directory:
+The SPA talks to its own origin (the BFF), so it needs almost no config — both
+vars below default to same-origin and are normally left unset. See
+`.env.example` for details and the dev proxy setup.
 
 ```env
-# Superadmin API URL (Port 8081 - isolated admin port)
-VITE_ADMIN_API_URL=http://localhost:8081
+# Admin API base — leave UNSET for the same-origin BFF deployment.
+# VITE_ADMIN_API_URL=
+# Public issuer origin — used ONLY for forgot/reset password. Leave UNSET for
+# same-origin / dev proxy.
+# VITE_OIDC_ISSUER=
 ```
 
-See `.env.example` for detailed documentation.
+The BFF itself is configured via `BFF_*` env vars — see [`bff/README.md`](bff/README.md).
 
 ## API Integration
 
-This portal connects to **Port 8081** (Admin API) exclusively. All endpoints use the `/api/admin/*` prefix:
+In production the browser only ever calls **same-origin** paths; Caddy routes
+`/bff/*`, `/api/admin/*` and `/api/profile` to the BFF and serves the SPA for
+everything else. The BFF injects the bearer before forwarding to the loopback
+admin API (`/api/admin/*` prefix) or the issuer (`/api/profile`).
 
-### Authentication (Superadmin only)
-- `GET  /oauth/authorize` - Authorization Code + PKCE login (AS hosted login)
-- `POST /oauth/token` - Code→token exchange AND silent refresh (`grant_type=refresh_token`); the rotated refresh token rides an HttpOnly cookie scoped to `/oauth/token`
-- `POST /api/auth/logout` - Refresh-token revocation + cookie clear
-- `GET  /api/admin/profile` - Current superadmin profile
+### Authentication & session (handled by the BFF)
+- `GET  /bff/login` / `GET /bff/callback` — Authorization Code + PKCE, server-side
+- `GET  /bff/session` — bootstrap `{ authenticated, user, csrf }`
+- `POST /bff/logout` — revoke session + clear cookie
+- `POST /bff/elevate` — server-side step-up (re-auth) for sensitive actions
+- `GET  /api/admin/profile` — current superadmin profile
 
 ### Application Management
 - `GET /api/admin/apps` - List all applications
@@ -226,24 +254,26 @@ This portal connects to **Port 8081** (Admin API) exclusively. All endpoints use
 
 ## Authentication
 
-The portal is a first-party **public client** using **Authorization Code + PKCE**
-(OAuth 2.1). Credentials and MFA are handled by the authorization server's hosted
-login — the SPA never sees them.
+The BFF is the confidential **OAuth client**; the SPA holds **no tokens**.
+Credentials and MFA are handled by the authorization server's hosted login.
 
-1. The user clicks **Sign in**; the SPA generates a PKCE `code_verifier`/`state`
-   (stored in `sessionStorage` for the round-trip) and redirects to
-   `/oauth/authorize` (`response_type=code`, `code_challenge_method=S256`).
-2. After authenticating (incl. MFA) at the AS, the browser is redirected back to
-   `/auth/callback?code=…&state=…`.
-3. The callback verifies `state` (CSRF/mix-up guard) and exchanges the code +
-   `code_verifier` at `/oauth/token`. The **access token is held in memory only**;
-   the **refresh token is set as an HttpOnly cookie** by the backend and is never
-   exposed to JavaScript.
-4. Axios interceptors attach the in-memory access token. On a `401`, a single
-   shared helper silently refreshes via the HttpOnly cookie (`POST /oauth/token`,
-   `grant_type=refresh_token`, rotated server-side) and retries the request.
-5. If refresh fails, the user is redirected to login. A cold page load
-   re-hydrates the session the same way (cookie → access token → profile).
+1. The user clicks **Sign in** → full-page navigation to `/bff/login`. The BFF
+   creates the PKCE `code_verifier`/`state` (server-side, single-use) and
+   redirects to the issuer `/oauth/authorize` (`code_challenge_method=S256`).
+2. After authenticating (incl. MFA), the browser returns to `/bff/callback`. The
+   BFF validates `state`, exchanges the code for tokens at `/oauth/token`, stores
+   them in a **server-side session**, and sets an opaque `__Host-admin_session`
+   cookie (HttpOnly · Secure · `SameSite=Strict`).
+3. The SPA bootstraps via `GET /bff/session` → `{ authenticated, user, csrf }`.
+   It sends the CSRF token in `X-CSRF-Token` on every state-changing request.
+4. For each `/api/admin/*` call the BFF resolves the session, checks CSRF,
+   **proactively refreshes** the token if near expiry, injects
+   `Authorization: Bearer …`, strips the cookie, and proxies to the loopback
+   admin API. On `401` the SPA routes to login.
+5. Sensitive actions trigger `403 elevation_required`; the SPA prompts and posts
+   to `/bff/elevate`, which re-authenticates server-side and elevates the session.
+
+See [`docs/architecture.md`](docs/architecture.md) for sequence diagrams.
 
 ## Role-Based Access Control
 
@@ -293,33 +323,22 @@ app.use(PrimeVue, {
 ## Build & Deployment
 
 ```bash
-# Production build
-npm run build
-
-# The dist/ folder contains the built assets
-# Deploy to any static hosting (Nginx, Apache, Netlify, Vercel, etc.)
+npm run build   # → dist/ (static assets)
 ```
 
-### Nginx Configuration Example
+Production deployment is **not** a plain static host: the SPA needs its BFF and
+the Caddy routing in front of it. The repo ships a complete kit in
+[`deploy/`](deploy/README.md):
 
-```nginx
-server {
-    listen 80;
-    server_name admin.example.com;
-    root /var/www/oauth2-admin/dist;
-    index index.html;
+- **`deploy/Caddyfile`** — serves `dist/` and reverse-proxies `/bff/*`,
+  `/api/admin/*` and `/api/profile` to the BFF (`127.0.0.1:8091`); CSP + HSTS.
+- **`deploy/systemd/socrate-admin-bff.service`** — hardened unit for the BFF
+  (loopback-bound, `NoNewPrivileges`, `ProtectSystem=strict`, seccomp filter).
+- **`deploy/env/`** + **`deploy/scripts/`** — secrets template and
+  build/push/install/bootstrap helpers.
 
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    location /api {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
+The BFF (Go, stdlib-only) lives in [`bff/`](bff/README.md) and is the only client
+of the loopback admin API.
 
 ## License
 
