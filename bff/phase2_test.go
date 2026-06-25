@@ -1,0 +1,271 @@
+package main
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+// makeJWT builds a header.payload.sig token; the BFF only base64url-decodes the
+// payload (it does not verify the signature).
+func makeJWT(claims map[string]any) string {
+	payload, _ := json.Marshal(claims)
+	return "hdr." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+}
+
+type capture struct {
+	mu     sync.Mutex
+	auth   string
+	cookie string
+	hits   int
+}
+
+func (c *capture) record(r *http.Request) {
+	c.mu.Lock()
+	c.auth, c.cookie, c.hits = r.Header.Get("Authorization"), r.Header.Get("Cookie"), c.hits+1
+	c.mu.Unlock()
+}
+func (c *capture) get() (string, string, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.auth, c.cookie, c.hits
+}
+
+// phase2Harness wires the BFF against a mock admin API and a mock Socrate token
+// endpoint. The access token is a JWT carrying sub/email/roles.
+func phase2Harness(t *testing.T) (http.Handler, *app, *capture, string) {
+	t.Helper()
+
+	accessJWT := makeJWT(map[string]any{
+		"sub": "user-1", "email": "admin@example.com", "name": "Admin",
+		"roles": []any{"jwt_role"},
+	})
+
+	cap := &capture{}
+	admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cap.record(r)
+		_, _ = io.WriteString(w, "admin-ok")
+	}))
+	t.Cleanup(admin.Close)
+
+	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/oauth/token" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = r.ParseForm()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Form.Get("grant_type") {
+		case "authorization_code":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": accessJWT, "refresh_token": "refresh-1", "id_token": "id-1",
+				"token_type": "Bearer", "expires_in": 300,
+				"roles": []string{"super_admin"}, "app_roles": map[string][]string{"admin-console": {"console_admin"}},
+			})
+		case "refresh_token":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "refreshed-access", "refresh_token": "refresh-2",
+				"token_type": "Bearer", "expires_in": 300,
+			})
+		default:
+			http.Error(w, "unsupported_grant_type", http.StatusBadRequest)
+		}
+	}))
+	t.Cleanup(as.Close)
+
+	adminURL, _ := url.Parse(admin.URL)
+	asURL, _ := url.Parse(as.URL)
+	cfg := &Config{
+		ListenAddr: "127.0.0.1:0", AdminUpstream: adminURL,
+		ClientID: "admin-console", ClientSecret: "secret",
+		OAuthUpstream: asURL, OAuthPublicURL: "https://as.example", PublicOrigin: "https://admin.example",
+		Scopes: "openid profile email", SessionIdle: 30 * time.Minute, SessionAbsolute: 8 * time.Hour,
+		CookieSecure: false,
+	}
+	a := newApp(cfg)
+	return a.handler(), a, cap, accessJWT
+}
+
+func sessionCookie(t *testing.T, rr *httptest.ResponseRecorder, name string) *http.Cookie {
+	t.Helper()
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == name {
+			return c
+		}
+	}
+	t.Fatalf("cookie %q not set", name)
+	return nil
+}
+
+func TestPhase2FullFlow(t *testing.T) {
+	h, a, cap, accessJWT := phase2Harness(t)
+	name := a.cookieName()
+
+	// 1. /bff/login → 302 to the AS authorize endpoint with PKCE params.
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/login?return_to=/dashboard", nil))
+	if rr.Code != http.StatusFound {
+		t.Fatalf("login status = %d, want 302", rr.Code)
+	}
+	loc, _ := url.Parse(rr.Header().Get("Location"))
+	if loc.Scheme+"://"+loc.Host+loc.Path != "https://as.example/oauth/authorize" {
+		t.Fatalf("authorize URL = %s", loc)
+	}
+	q := loc.Query()
+	if q.Get("response_type") != "code" || q.Get("client_id") != "admin-console" ||
+		q.Get("code_challenge_method") != "S256" || q.Get("code_challenge") == "" ||
+		q.Get("redirect_uri") != "https://admin.example/bff/callback" {
+		t.Fatalf("bad authorize params: %v", q)
+	}
+	state := q.Get("state")
+
+	// 2. /bff/callback → exchanges code, sets session cookie, 302 to return_to.
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/callback?code=abc&state="+state, nil))
+	if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/dashboard" {
+		t.Fatalf("callback = %d %q, want 302 /dashboard", rr.Code, rr.Header().Get("Location"))
+	}
+	cookie := sessionCookie(t, rr, name)
+	if cookie.Value == "" || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("session cookie weak: %+v", cookie)
+	}
+
+	// 3. /bff/session → identity + csrf.
+	rr = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/bff/session", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(rr, req)
+	var sess struct {
+		Authenticated bool     `json:"authenticated"`
+		User          UserInfo `json:"user"`
+		CSRF          string   `json:"csrf"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &sess)
+	if !sess.Authenticated || sess.User.Sub != "user-1" || sess.User.Email != "admin@example.com" {
+		t.Fatalf("session = %+v", sess)
+	}
+	if !hasAll(sess.User.Roles, "super_admin", "console_admin", "jwt_role") {
+		t.Fatalf("roles = %v, want merged from body+app_roles+jwt", sess.User.Roles)
+	}
+	if sess.CSRF == "" {
+		t.Fatal("csrf empty")
+	}
+
+	// 4. GET /api/admin/* → upstream gets the injected bearer, NOT the cookie.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("admin GET = %d", rr.Code)
+	}
+	gotAuth, gotCookie, _ := cap.get()
+	if gotAuth != "Bearer "+accessJWT {
+		t.Errorf("upstream auth = %q, want injected session token", gotAuth)
+	}
+	if gotCookie != "" {
+		t.Errorf("session cookie leaked upstream: %q", gotCookie)
+	}
+
+	// 5. POST without CSRF → 403; with CSRF → proxied.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/admin/apps", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("POST without CSRF = %d, want 403", rr.Code)
+	}
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/admin/apps", nil)
+	req.AddCookie(cookie)
+	req.Header.Set("X-CSRF-Token", sess.CSRF)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST with CSRF = %d, want 200", rr.Code)
+	}
+
+	// 6. /bff/logout → clears the cookie; session no longer resolves.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/bff/logout", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("logout = %d, want 204", rr.Code)
+	}
+	cleared := sessionCookie(t, rr, name)
+	if cleared.MaxAge >= 0 {
+		t.Errorf("logout cookie MaxAge = %d, want < 0", cleared.MaxAge)
+	}
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/bff/session", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(rr, req)
+	if strings.Contains(rr.Body.String(), `"authenticated":true`) {
+		t.Errorf("session still authenticated after logout: %s", rr.Body.String())
+	}
+}
+
+func TestUnknownStateRejected(t *testing.T) {
+	h, _, _, _ := phase2Harness(t)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/callback?code=abc&state=forged", nil))
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("forged state = %d, want 400", rr.Code)
+	}
+}
+
+func TestDualModePassThrough(t *testing.T) {
+	h, _, cap, _ := phase2Harness(t)
+	// No session cookie → the browser's own bearer is forwarded unchanged.
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+	req.Header.Set("Authorization", "Bearer browser-token")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d", rr.Code)
+	}
+	if gotAuth, _, _ := cap.get(); gotAuth != "Bearer browser-token" {
+		t.Errorf("upstream auth = %q, want pass-through", gotAuth)
+	}
+}
+
+func TestProactiveRefresh(t *testing.T) {
+	h, a, cap, _ := phase2Harness(t)
+	// Inject a session whose access token is within 30s of expiry.
+	sid, _ := randomToken(16)
+	now := time.Now()
+	a.store.Put(&Session{
+		ID: sid, AccessToken: "stale", RefreshToken: "refresh-1",
+		AccessExpiry: now.Add(5 * time.Second), CSRF: "c", Created: now, LastSeen: now,
+		User: UserInfo{Sub: "user-1"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/x", nil)
+	req.AddCookie(&http.Cookie{Name: a.cookieName(), Value: sid})
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if gotAuth, _, _ := cap.get(); gotAuth != "Bearer refreshed-access" {
+		t.Errorf("upstream auth = %q, want refreshed token injected", gotAuth)
+	}
+}
+
+func hasAll(have []string, want ...string) bool {
+	set := make(map[string]bool, len(have))
+	for _, h := range have {
+		set[h] = true
+	}
+	for _, w := range want {
+		if !set[w] {
+			return false
+		}
+	}
+	return true
+}
