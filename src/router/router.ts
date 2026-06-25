@@ -14,7 +14,6 @@ const routes: RouteRecordRaw[] = [
     meta:      { guest: true },
     children:  [
       { path: 'login',          name: 'Login',          component: () => import('@/views/auth/LoginView.vue'),          meta: { title: 'Login' } },
-      { path: 'callback',       name: 'AuthCallback',   component: () => import('@/views/auth/CallbackView.vue'),       meta: { title: 'Signing in…', callback: true } },
       { path: 'change-password',name: 'ChangePassword', component: () => import('@/views/auth/ChangePasswordView.vue'), meta: { title: 'Change Password', passwordChange: true } },
       { path: 'forgot-password',name: 'ForgotPassword', component: () => import('@/views/auth/ForgotPasswordView.vue'), meta: { title: 'Forgot Password' } },
       { path: 'reset-password', name: 'ResetPassword',  component: () => import('@/views/auth/ResetPasswordView.vue'),  meta: { title: 'Reset Password' } },
@@ -66,26 +65,18 @@ router.beforeEach(async (to, _from, next) => {
 
   const authStore = useAuthStore()
 
-  // OAuth callback route: let the view process the authorization code without
-  // any auth/guest redirect interfering with the in-flight exchange.
-  if (to.meta.callback) {
-    return next()
-  }
-
-  // Forced-password-change page is always reachable (it is the only escape from
-  // the password_change_required gate below).
-  if (to.meta.passwordChange) {
-    return next()
-  }
-
-  // Re-hydrate auth state on every cold navigation
+  // Re-hydrate auth state on every cold navigation. This asks the BFF whether
+  // the session cookie is valid (`GET /bff/session`) and, as a side effect,
+  // loads the CSRF token needed by every state-changing request — including the
+  // change-password form below.
   if (!authStore.isAuthenticated) {
     await authStore.checkAuth()
   }
 
   // Forced password change gates EVERY other route until resolved
-  // (ADMIN-SPA-MIGRATION.md §6).
-  if (passwordChangeRequired.value) {
+  // (ADMIN-SPA-MIGRATION.md §6). The change-password page itself is exempt so it
+  // remains reachable (and avoids a redirect-to-self loop).
+  if (passwordChangeRequired.value && to.name !== 'ChangePassword') {
     return next({ name: 'ChangePassword' })
   }
 

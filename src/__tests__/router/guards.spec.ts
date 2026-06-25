@@ -5,8 +5,8 @@
  * rather than mounting the full router, which is faster and more precise.
  *
  * Security relevance:
- *  callback — the OAuth callback route must process the authorization code
- *          without an auth/guest redirect interrupting the in-flight exchange.
+ *  password change — a forced-password-change gate must redirect EVERY route
+ *          (except the change-password page itself) until resolved.
  *  F-04 — safe redirect: the redirect appended to the Login URL must not
  *          allow open-redirect payloads to survive into the query string.
  *  requiresAuth — unauthenticated users must never reach admin routes.
@@ -15,6 +15,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
+import {
+  passwordChangeRequired,
+  flagPasswordChangeRequired,
+  clearPasswordChangeRequired,
+} from '@/services/adminGuards'
 
 // ─── Shared mock store state ──────────────────────────────────────────────────
 const storeState = {
@@ -53,12 +58,12 @@ async function runGuard(
 ) {
   const authStore = useAuthStore()
 
-  if (to.meta['callback']) {
-    return next()
-  }
-
   if (!authStore.isAuthenticated) {
     await authStore.checkAuth()
+  }
+
+  if (passwordChangeRequired.value && to.name !== 'ChangePassword') {
+    return next({ name: 'ChangePassword' })
   }
 
   if (to.meta['guest'] && authStore.isAuthenticated) {
@@ -85,23 +90,27 @@ describe('Router guards', () => {
     storeState.isAuthenticated = false
     storeState.isSuperAdmin    = false
     storeState.checkAuth       = vi.fn().mockResolvedValue(false)
+    clearPasswordChangeRequired()
   })
 
-  // ── callback passthrough ─────────────────────────────────────────────────────
+  // ── forced password-change gate ──────────────────────────────────────────────
 
-  describe('OAuth callback route', () => {
-    it('passes straight through without redirecting or calling checkAuth', async () => {
+  describe('forced password change gate', () => {
+    it('redirects every other route to ChangePassword while the gate is set', async () => {
+      storeState.isAuthenticated = true
+      flagPasswordChangeRequired()
       const next = vi.fn()
-      await runGuard({ meta: { callback: true, guest: true }, fullPath: '/auth/callback' }, next)
-      expect(next).toHaveBeenCalledWith()                 // allowed
-      expect(storeState.checkAuth).not.toHaveBeenCalled() // exchange not pre-empted
+      await runGuard({ meta: { requiresAuth: true }, fullPath: '/apps', name: 'Applications' }, next)
+      expect(next).toHaveBeenCalledWith({ name: 'ChangePassword' })
+      clearPasswordChangeRequired()
     })
 
-    it('does not bounce an authenticated user away from the callback', async () => {
-      storeState.isAuthenticated = true
+    it('lets the change-password page itself through (no redirect-to-self loop)', async () => {
+      flagPasswordChangeRequired()
       const next = vi.fn()
-      await runGuard({ meta: { callback: true, guest: true }, fullPath: '/auth/callback' }, next)
-      expect(next).toHaveBeenCalledWith()                 // NOT { name: 'Dashboard' }
+      await runGuard({ meta: { guest: true, passwordChange: true }, fullPath: '/auth/change-password', name: 'ChangePassword' }, next)
+      expect(next).toHaveBeenCalledWith()
+      clearPasswordChangeRequired()
     })
   })
 

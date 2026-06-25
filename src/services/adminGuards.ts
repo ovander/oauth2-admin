@@ -7,8 +7,7 @@
  * state outside any component so both can coordinate.
  */
 import { ref } from 'vue'
-import * as authService from './authService'
-import { tokenStore } from './api'
+import { bffElevate } from './session'
 
 // ─── Error shape helpers ──────────────────────────────────────────────────────
 export function challengeCode(err: unknown): string | undefined {
@@ -37,8 +36,8 @@ export class ElevationCancelled extends Error {
 
 /**
  * Called by the 403 `elevation_required` interceptor: open the step-up prompt
- * and resolve once a fresh elevated token has been obtained (and swapped into
- * tokenStore), so the caller can retry. Concurrent callers share one prompt.
+ * and resolve once the BFF session has been elevated, so the caller can retry.
+ * Concurrent callers share one prompt.
  */
 export function requireElevation(): Promise<void> {
   return new Promise<void>((resolve, reject) => {
@@ -51,13 +50,12 @@ export function requireElevation(): Promise<void> {
   })
 }
 
-/** Submit the step-up credentials. On success, swaps in the fresh token. */
+/** Submit the step-up credentials. On success, the BFF session is elevated. */
 export async function submitElevation(password: string, mfaCode?: string): Promise<void> {
   elevationLoading.value = true
   elevationError.value   = null
   try {
-    const token = await authService.elevate(password, mfaCode)
-    tokenStore.set(token)
+    await bffElevate(password, mfaCode)
     finishElevation('resolve')
   } catch (err: unknown) {
     const code = challengeCode(err)

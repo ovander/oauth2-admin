@@ -2,8 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import * as authService from '@/services/authService'
-import * as oauth from '@/services/oauth'
-import { tokenStore } from '@/services/api'
+import { fetchSession, bffLogout, startLogin } from '@/services/session'
 import { passwordChangeRequired, clearPasswordChangeRequired } from '@/services/adminGuards'
 import { normalizeRole } from '@/types/auth'
 import { isSuperAdminRole, isAppAdminRole, canManageUsersRole } from '@/utils/roles'
@@ -23,15 +22,17 @@ export const useAuthStore = defineStore('auth', () => {
   const error     = ref<string | null>(null)
 
   // ─── Getters ──────────────────────────────────────────────────────────────
-  const isAuthenticated = computed(() => !!user.value && !!tokenStore.get())
+  // Auth is established when a profile has been loaded against a valid BFF
+  // session cookie. There is NO access token in the browser anymore.
+  const isAuthenticated = computed(() => !!user.value)
   const isSuperAdmin    = computed(() => isSuperAdminRole(user.value?.role))
   const isAppAdmin      = computed(() => isAppAdminRole(user.value?.role))
   const canManageUsers  = computed(() => canManageUsersRole(user.value?.role))
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
   /**
-   * Fetch the admin profile and normalise the role.
-   * Requires a valid access token to already be set in tokenStore.
+   * Fetch the admin profile and normalise the role. Requires an authenticated
+   * BFF session (the cookie) — the BFF injects the bearer server-side.
    */
   async function _loadProfile(): Promise<void> {
     const profile = await authService.getProfile()
@@ -40,103 +41,45 @@ export const useAuthStore = defineStore('auth', () => {
 
   // ─── Actions ──────────────────────────────────────────────────────────────
   /**
-   * Start Authorization Code + PKCE login by redirecting the browser to the
-   * authorization server's hosted login. Credentials and MFA are handled there,
-   * not in the SPA. `returnPath` (a safe internal path) is preserved across the
-   * round-trip so the user lands back where they intended.
-   *
-   * In the happy path the browser navigates away; this only returns/throws on a
-   * misconfiguration before the redirect.
+   * Start login via a full-page navigation to the BFF (`/bff/login`). The BFF
+   * runs the Authorization Code + PKCE flow, mints the session cookie, and
+   * returns the browser to `returnPath`. The browser navigates away, so nothing
+   * after this call runs in the happy path.
    */
   async function loginRedirect(returnPath?: string): Promise<void> {
     error.value     = null
     isLoading.value = true
-    try {
-      await oauth.beginLogin(returnPath)
-    } catch (err: unknown) {
-      isLoading.value = false
-      error.value = oauth.isOAuthError(err)
-        ? err.message
-        : 'Unable to start sign-in. Please try again.'
-      throw err
-    }
-  }
-
-  /**
-   * Complete the PKCE flow from the `/auth/callback` route: validate state,
-   * exchange the code for tokens, then load the profile. Returns the result and
-   * the safe path to navigate to. On failure, client state is cleared and
-   * `error` carries a user-facing message.
-   */
-  async function handleCallback(
-    params: oauth.CallbackParams,
-  ): Promise<{ ok: boolean; returnPath?: string }> {
-    isLoading.value = true
-    error.value     = null
-    try {
-      const { accessToken, returnPath } = await oauth.completeLogin(params)
-      tokenStore.set(accessToken)
-      await _loadProfile()
-      return { ok: true, returnPath }
-    } catch (err: unknown) {
-      // A forced password change surfaces as 403 during the profile load. Keep
-      // the access token (the change-password call needs it) and stay quiet —
-      // the router guard / global watcher routes to the change-password page.
-      if (passwordChangeRequired.value) {
-        return { ok: false }
-      }
-      tokenStore.clear()
-      user.value = null
-      error.value = oauth.isOAuthError(err)
-        ? err.message
-        : errorMessage(err) ?? 'Sign-in could not be completed. Please try again.'
-      return { ok: false }
-    } finally {
-      isLoading.value = false
-    }
+    startLogin(returnPath)
   }
 
   async function logout() {
     try {
-      // Revokes the refresh token and clears the HttpOnly cookie server-side.
-      await authService.logout()
+      // Revoke the server-side session and clear the HttpOnly cookie.
+      await bffLogout()
     } finally {
-      tokenStore.clear()
       user.value = null
       router.push({ name: 'Login' })
     }
   }
 
   /**
-   * Called by the router on every cold navigation to re-hydrate state after a
-   * page reload. The in-memory access token is gone; we attempt a silent
-   * refresh using the HttpOnly refresh-token cookie. If that fails, the user is
-   * not authenticated.
+   * Re-hydrate auth state on every cold navigation. Asks the BFF whether a
+   * session cookie is valid (`GET /bff/session`); if so, loads the full admin
+   * profile. A forced-password-change gate surfaces as a 403 on the profile
+   * load — the flag is kept so the router routes to the change-password page.
    */
   async function checkAuth(): Promise<boolean> {
-    // If we already have a token in memory, validate it with a profile call.
-    if (tokenStore.get()) {
-      try {
-        await _loadProfile()
-        return true
-      } catch {
-        // Keep the (valid but gated) token if a password change is required.
-        if (!passwordChangeRequired.value) tokenStore.clear()
+    try {
+      const session = await fetchSession()
+      if (!session.authenticated) {
         user.value = null
         return false
       }
-    }
-
-    // No in-memory token — try a silent refresh via the HttpOnly cookie.
-    // Note: if the refresh succeeds but the profile is gated by a forced
-    // password change, the fresh token stays in tokenStore so the
-    // change-password call can authenticate.
-    try {
-      const accessToken = await oauth.refreshAccessToken()
-      tokenStore.set(accessToken)
       await _loadProfile()
       return true
     } catch {
+      // Authenticated but gated (e.g. password change required): keep the gate.
+      if (passwordChangeRequired.value) return false
       user.value = null
       return false
     }
@@ -155,13 +98,13 @@ export const useAuthStore = defineStore('auth', () => {
 
   /**
    * Called after a successful forced/self-service password change. The backend
-   * has revoked all tokens, so drop local state, clear the gate, and route to a
-   * fresh login.
+   * has revoked all tokens (so the BFF session is dead); clear local state,
+   * revoke the cookie best-effort, and route to a fresh login.
    */
-  function onPasswordChanged() {
+  async function onPasswordChanged() {
     clearPasswordChangeRequired()
-    tokenStore.clear()
     user.value = null
+    await bffLogout().catch(() => {/* session already invalid — ignore */})
     router.push({ name: 'Login', query: { changed: '1' } })
   }
 
@@ -176,7 +119,6 @@ export const useAuthStore = defineStore('auth', () => {
     isAppAdmin,
     canManageUsers,
     loginRedirect,
-    handleCallback,
     logout,
     checkAuth,
     updateProfile,

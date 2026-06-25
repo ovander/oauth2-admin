@@ -1,25 +1,25 @@
 /**
- * Integration tests for api.ts — Axios interceptors.
+ * Integration tests for api.ts — Axios interceptors (BFF cookie model).
  *
- * Uses MSW (Mock Service Worker) to intercept real HTTP calls made by the
- * Axios instance.  This covers the code paths that could NOT be tested with
- * vi.mock() in unit tests:
+ * Uses MSW to intercept real HTTP calls made by the Axios instance. Covers the
+ * paths that could NOT be tested with vi.mock() in unit tests:
  *
- *   • Request interceptor: Bearer token attachment
- *   • Response interceptor: 401 → silent refresh → retry original request
- *   • Response interceptor: concurrent 401s are queued (single refresh)
- *   • Response interceptor: refresh failure → clear token + redirect to Login
- *   • Response interceptor: 403 / 5xx do NOT trigger a refresh
- *   • processQueue: resolves queued requests after successful refresh
- *   • processQueue: rejects queued requests when refresh fails
+ *   • Request interceptor: NO Authorization header (the BFF injects the bearer);
+ *     X-CSRF-Token attached on unsafe methods; X-Requested-By always sent.
+ *   • Response interceptor: 401 → clear CSRF + redirect to Login (no client-side
+ *     refresh — the BFF refreshes server-side).
+ *   • Response interceptor: 403 elevation_required → step-up → retry once.
+ *   • Response interceptor: 403 password_change_required → flag.
+ *   • Response interceptor: 403 / 5xx pass through.
  */
 import { describe, it, expect, beforeEach, vi }  from 'vitest'
 import { http, HttpResponse }                     from 'msw'
 import { server }                                 from '../msw/server'
-import { BASE, REFRESH_RESPONSE }                 from '../msw/handlers'
+import { BASE }                                   from '../msw/handlers'
 
-// ── Import the REAL api module and tokenStore (not mocked) ────────────────────
-import api, { tokenStore } from '@/services/api'
+// ── Import the REAL api module + CSRF store (not mocked) ──────────────────────
+import api from '@/services/api'
+import { csrfStore } from '@/services/session'
 
 // ── Import router so we can spy on router.push ────────────────────────────────
 import router from '@/router/router'
@@ -37,10 +37,7 @@ import {
 } from '@/services/adminGuards'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-const TEST_URL    = `${BASE}/api/test-resource`
-// The api.ts interceptor refreshes against the hardened /oauth/token refresh
-// grant (cookie Path=/oauth/token) — see docs/ADMIN-SPA-MIGRATION.md §3.
-const REFRESH_URL = `${BASE}/oauth/token`
+const TEST_URL = `${BASE}/api/test-resource`
 
 function ok200()    { return HttpResponse.json({ result: 'ok' }) }
 function auth401()  { return HttpResponse.json({ message: 'Unauthorized' }, { status: 401 }) }
@@ -50,28 +47,13 @@ function err500()   { return HttpResponse.json({ message: 'Server error' }, { st
 // ─────────────────────────────────────────────────────────────────────────────
 describe('api.ts — request interceptor', () => {
   beforeEach(() => {
-    tokenStore.clear()
+    csrfStore.clear()
     server.use(http.get(TEST_URL, ok200))
   })
 
-  it('attaches Authorization: Bearer <token> when a token is in memory', async () => {
-    let captured: string | null = null
-
-    server.use(
-      http.get(TEST_URL, ({ request }) => {
-        captured = request.headers.get('Authorization')
-        return ok200()
-      }),
-    )
-
-    tokenStore.set('my-secret-token')
-    await api.get('/api/test-resource')
-
-    expect(captured).toBe('Bearer my-secret-token')
-  })
-
-  it('omits the Authorization header when no token is stored', async () => {
+  it('NEVER attaches an Authorization header (the BFF injects the bearer)', async () => {
     let captured: string | null = 'should-be-absent'
+    csrfStore.set('csrf-1')
 
     server.use(
       http.get(TEST_URL, ({ request }) => {
@@ -80,13 +62,44 @@ describe('api.ts — request interceptor', () => {
       }),
     )
 
-    // tokenStore is already cleared in beforeEach
     await api.get('/api/test-resource')
 
     expect(captured).toBeNull()
   })
 
-  it('always sends the X-Requested-By header (lightweight CSRF mitigation F-16)', async () => {
+  it('attaches X-CSRF-Token on unsafe methods when a CSRF token is present', async () => {
+    let captured: string | null = null
+    csrfStore.set('csrf-token-123')
+
+    server.use(
+      http.post(`${BASE}/api/admin/thing`, ({ request }) => {
+        captured = request.headers.get('X-CSRF-Token')
+        return ok200()
+      }),
+    )
+
+    await api.post('/api/admin/thing', {})
+
+    expect(captured).toBe('csrf-token-123')
+  })
+
+  it('does NOT attach X-CSRF-Token on safe (GET) requests', async () => {
+    let captured: string | null = 'present'
+    csrfStore.set('csrf-token-123')
+
+    server.use(
+      http.get(TEST_URL, ({ request }) => {
+        captured = request.headers.get('X-CSRF-Token')
+        return ok200()
+      }),
+    )
+
+    await api.get('/api/test-resource')
+
+    expect(captured).toBeNull()
+  })
+
+  it('always sends the X-Requested-By header (forwarded by the BFF, F-16)', async () => {
     let captured: string | null = null
 
     server.use(
@@ -103,197 +116,91 @@ describe('api.ts — request interceptor', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-describe('api.ts — response interceptor: 401 → silent refresh', () => {
-  beforeEach(() => {
-    tokenStore.clear()
-  })
+describe('api.ts — response interceptor: 401 → Login (no client refresh)', () => {
+  beforeEach(() => { csrfStore.set('csrf-1') })
 
-  it('calls the /oauth/token refresh grant and retries the original request on 401', async () => {
-    let callCount   = 0
-    let refreshHits = 0
-    const capturedTokens: string[] = []
-
-    server.use(
-      http.get(TEST_URL, ({ request }) => {
-        callCount++
-        capturedTokens.push(request.headers.get('Authorization') ?? 'none')
-        // First call → 401; second call (retry) → 200
-        return callCount === 1 ? auth401() : ok200()
-      }),
-      http.post(REFRESH_URL, () => {
-        refreshHits++
-        return HttpResponse.json({ ...REFRESH_RESPONSE, access_token: 'new-token-after-refresh' })
-      }),
-    )
-
-    const response = await api.get('/api/test-resource')
-
-    expect(response.status).toBe(200)
-    expect(refreshHits).toBe(1)
-    // Retry request must use the freshly obtained token
-    expect(capturedTokens[1]).toBe('Bearer new-token-after-refresh')
-    // tokenStore must be updated
-    expect(tokenStore.get()).toBe('new-token-after-refresh')
-  })
-
-  it('queues concurrent 401 requests and issues only ONE refresh call', async () => {
-    let refreshCalls = 0
-    let aCalls       = 0
-    let bCalls       = 0
-
-    server.use(
-      http.get(`${BASE}/api/resource-a`, () => {
-        aCalls++
-        return aCalls === 1 ? auth401() : HttpResponse.json({ from: 'a' })
-      }),
-      http.get(`${BASE}/api/resource-b`, () => {
-        bCalls++
-        return bCalls === 1 ? auth401() : HttpResponse.json({ from: 'b' })
-      }),
-      http.post(REFRESH_URL, () => {
-        refreshCalls++
-        return HttpResponse.json({ ...REFRESH_RESPONSE, access_token: 'shared-refresh-token' })
-      }),
-    )
-
-    // Issue both requests before either resolves
-    const [r1, r2] = await Promise.all([
-      api.get('/api/resource-a'),
-      api.get('/api/resource-b'),
-    ])
-
-    // The defining assertion: exactly ONE refresh, not two
-    expect(refreshCalls).toBe(1)
-    expect(r1.data).toEqual({ from: 'a' })
-    expect(r2.data).toEqual({ from: 'b' })
-  })
-
-  it('clears the token and redirects to Login when refresh returns 401', async () => {
+  it('clears CSRF and redirects to Login on 401', async () => {
     const pushSpy = vi.spyOn(router, 'push').mockResolvedValue(undefined)
+    server.use(http.get(TEST_URL, auth401))
 
-    server.use(
-      http.get(TEST_URL,    () => auth401()),
-      http.post(REFRESH_URL, () => HttpResponse.json({ message: 'Session expired' }, { status: 401 })),
-    )
+    await expect(api.get('/api/test-resource')).rejects.toMatchObject({
+      response: { status: 401 },
+    })
 
-    tokenStore.set('stale-token')
-
-    await expect(api.get('/api/test-resource')).rejects.toThrow()
-
-    expect(tokenStore.get()).toBeNull()
+    expect(csrfStore.get()).toBeNull()
     expect(pushSpy).toHaveBeenCalledWith({ name: 'Login' })
 
     pushSpy.mockRestore()
   })
 
-  it('rejects all queued requests when refresh fails', async () => {
+  it('does NOT bounce to Login on a change-password 401 (form error)', async () => {
+    const pushSpy = vi.spyOn(router, 'push').mockResolvedValue(undefined)
     server.use(
-      http.get(`${BASE}/api/resource-a`, () => auth401()),
-      http.get(`${BASE}/api/resource-b`, () => auth401()),
-      http.post(REFRESH_URL,             () => HttpResponse.json({}, { status: 401 })),
+      http.post(`${BASE}/api/admin/change-password`, () =>
+        HttpResponse.json({ message: 'Current password is incorrect' }, { status: 401 }),
+      ),
     )
 
-    vi.spyOn(router, 'push').mockResolvedValue(undefined)
+    await expect(api.post('/api/admin/change-password', {})).rejects.toMatchObject({
+      response: { status: 401 },
+    })
+    expect(pushSpy).not.toHaveBeenCalled()
 
-    const [r1, r2] = await Promise.allSettled([
-      api.get('/api/resource-a'),
-      api.get('/api/resource-b'),
-    ])
-
-    expect(r1.status).toBe('rejected')
-    expect(r2.status).toBe('rejected')
-
-    vi.restoreAllMocks()
-  })
-
-  it('does NOT retry a request that already has _retry=true (prevents infinite loops)', async () => {
-    let hits = 0
-
-    server.use(
-      // Always returns 401 — should not refresh-loop
-      http.get(TEST_URL, () => { hits++; return auth401() }),
-      http.post(REFRESH_URL, () => {
-        // Refresh returns new token
-        return HttpResponse.json(REFRESH_RESPONSE)
-      }),
-    )
-
-    // The first call should get 401, trigger refresh, retry (hit=2), get 401 again → reject
-    await expect(api.get('/api/test-resource')).rejects.toThrow()
-    // Exactly 2 hits: original + 1 retry — NOT an infinite loop
-    expect(hits).toBe(2)
+    pushSpy.mockRestore()
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe('api.ts — response interceptor: non-401 errors pass through', () => {
-  beforeEach(() => {
-    tokenStore.clear()
-    // Keep refresh handler alive so we can assert it's NOT called
-  })
-
-  it('rejects 403 without calling the refresh endpoint', async () => {
-    let refreshHits = 0
-    server.use(
-      http.get(TEST_URL,     () => err403()),
-      http.post(REFRESH_URL, () => { refreshHits++; return HttpResponse.json(REFRESH_RESPONSE) }),
-    )
-
+  it('rejects 403 (no challenge) without retry', async () => {
+    server.use(http.get(TEST_URL, err403))
     await expect(api.get('/api/test-resource')).rejects.toMatchObject({
       response: { status: 403 },
     })
-    expect(refreshHits).toBe(0)
   })
 
-  it('rejects 500 without calling the refresh endpoint', async () => {
-    let refreshHits = 0
-    server.use(
-      http.get(TEST_URL,     () => err500()),
-      http.post(REFRESH_URL, () => { refreshHits++; return HttpResponse.json(REFRESH_RESPONSE) }),
-    )
-
+  it('rejects 500 unchanged', async () => {
+    server.use(http.get(TEST_URL, err500))
     await expect(api.get('/api/test-resource')).rejects.toMatchObject({
       response: { status: 500 },
     })
-    expect(refreshHits).toBe(0)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe('api.ts — response interceptor: 403 step-up / forced password change', () => {
   beforeEach(() => {
-    tokenStore.clear()
+    csrfStore.set('csrf-1')
     clearPasswordChangeRequired()
+    vi.mocked(requireElevation).mockReset()
   })
 
   function elevationRequired() { return HttpResponse.json({ error: 'elevation_required' }, { status: 403 }) }
   function pwChangeRequired()  { return HttpResponse.json({ error: 'password_change_required' }, { status: 403 }) }
 
-  it('prompts for step-up on 403 elevation_required and retries with the elevated token', async () => {
-    // The prompt resolves by swapping in a fresh elevated token.
-    vi.mocked(requireElevation).mockImplementation(async () => { tokenStore.set('elevated-token') })
+  it('prompts for step-up on 403 elevation_required and retries once (BFF re-elevates)', async () => {
+    // The prompt resolves once /bff/elevate has elevated the session; the
+    // retried request carries no new header — the BFF injects the elevated token.
+    vi.mocked(requireElevation).mockResolvedValueOnce(undefined)
 
     let calls = 0
-    const seen: string[] = []
     server.use(
-      http.get(TEST_URL, ({ request }) => {
+      http.get(TEST_URL, () => {
         calls++
-        seen.push(request.headers.get('Authorization') ?? 'none')
         return calls === 1 ? elevationRequired() : ok200()
       }),
     )
 
-    tokenStore.set('stale-token')
     const res = await api.get('/api/test-resource')
 
     expect(res.status).toBe(200)
     expect(requireElevation).toHaveBeenCalledTimes(1)
-    expect(seen[1]).toBe('Bearer elevated-token')
+    expect(calls).toBe(2)
   })
 
   it('rejects the request when the admin cancels the step-up prompt', async () => {
     vi.mocked(requireElevation).mockRejectedValueOnce(new Error('cancelled'))
-    server.use(http.get(TEST_URL, () => elevationRequired()))
+    server.use(http.get(TEST_URL, elevationRequired))
 
     await expect(api.get('/api/test-resource')).rejects.toMatchObject({
       response: { status: 403, data: { error: 'elevation_required' } },
@@ -301,7 +208,7 @@ describe('api.ts — response interceptor: 403 step-up / forced password change'
   })
 
   it('does NOT re-prompt twice (single retry) if elevation_required persists', async () => {
-    vi.mocked(requireElevation).mockImplementation(async () => { tokenStore.set('elevated-token') })
+    vi.mocked(requireElevation).mockResolvedValueOnce(undefined)
     let hits = 0
     server.use(http.get(TEST_URL, () => { hits++; return elevationRequired() }))
 
@@ -311,7 +218,7 @@ describe('api.ts — response interceptor: 403 step-up / forced password change'
   })
 
   it('flags forced password change on 403 password_change_required', async () => {
-    server.use(http.get(TEST_URL, () => pwChangeRequired()))
+    server.use(http.get(TEST_URL, pwChangeRequired))
 
     expect(passwordChangeRequired.value).toBe(false)
     await expect(api.get('/api/test-resource')).rejects.toMatchObject({

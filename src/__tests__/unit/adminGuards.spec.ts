@@ -3,10 +3,13 @@
  *
  * Covers the client side of the Tier-0 step-up (elevation) state machine and
  * the forced-password-change flag (go-oauth2 ADMIN-SPA-MIGRATION.md §5–§6).
+ *
+ * Under the BFF model, step-up posts to `/bff/elevate` (services/session.ts);
+ * the BFF absorbs the elevated token into the session, so there is no token to
+ * swap into the browser anymore — success simply resolves the waiters.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { tokenStore } from '@/services/api'
-import * as authService from '@/services/authService'
+import { bffElevate } from '@/services/session'
 import {
   elevationVisible,
   elevationLoading,
@@ -21,10 +24,11 @@ import {
   clearPasswordChangeRequired,
 } from '@/services/adminGuards'
 
-vi.mock('@/services/authService')
+vi.mock('@/services/session', () => ({
+  bffElevate: vi.fn(),
+}))
 
 beforeEach(() => {
-  tokenStore.clear()
   clearPasswordChangeRequired()
   // Ensure no prompt leaks across tests.
   if (elevationVisible.value) cancelElevation()
@@ -41,7 +45,7 @@ describe('adminGuards — requireElevation()', () => {
     expect(settled).toBe(false)
 
     // Resolve it so the test doesn't leak a pending promise.
-    vi.mocked(authService.elevate).mockResolvedValueOnce('elevated-token')
+    vi.mocked(bffElevate).mockResolvedValueOnce(undefined)
     await submitElevation('correct-password')
     await p
     expect(settled).toBe(true)
@@ -52,7 +56,7 @@ describe('adminGuards — requireElevation()', () => {
     const b = requireElevation()
     expect(elevationVisible.value).toBe(true)
 
-    vi.mocked(authService.elevate).mockResolvedValueOnce('elevated-token')
+    vi.mocked(bffElevate).mockResolvedValueOnce(undefined)
     await submitElevation('correct-password')
 
     await expect(Promise.all([a, b])).resolves.toEqual([undefined, undefined])
@@ -60,20 +64,20 @@ describe('adminGuards — requireElevation()', () => {
 })
 
 describe('adminGuards — submitElevation()', () => {
-  it('swaps in the fresh token, resolves waiters, and closes the prompt', async () => {
-    vi.mocked(authService.elevate).mockResolvedValueOnce('fresh-elevated-token')
+  it('elevates the BFF session, resolves waiters, and closes the prompt', async () => {
+    vi.mocked(bffElevate).mockResolvedValueOnce(undefined)
     const done = requireElevation()
 
     await submitElevation('correct-password')
     await done
 
-    expect(tokenStore.get()).toBe('fresh-elevated-token')
+    expect(bffElevate).toHaveBeenCalledWith('correct-password', undefined)
     expect(elevationVisible.value).toBe(false)
     expect(elevationLoading.value).toBe(false)
   })
 
   it('reveals the MFA field on mfa_required without resolving', async () => {
-    vi.mocked(authService.elevate).mockRejectedValueOnce({ response: { data: { error: 'mfa_required' } } })
+    vi.mocked(bffElevate).mockRejectedValueOnce({ response: { data: { error: 'mfa_required' } } })
     let settled = false
     requireElevation().then(() => { settled = true }).catch(() => { /* cancelled in teardown */ })
 
@@ -85,13 +89,14 @@ describe('adminGuards — submitElevation()', () => {
     expect(elevationError.value).toMatch(/authenticator/i)
 
     // Now complete it with the code.
-    vi.mocked(authService.elevate).mockResolvedValueOnce('elevated-token')
+    vi.mocked(bffElevate).mockResolvedValueOnce(undefined)
     await submitElevation('correct-password', '123456')
+    expect(bffElevate).toHaveBeenLastCalledWith('correct-password', '123456')
     expect(elevationVisible.value).toBe(false)
   })
 
   it('shows an "invalid code" message on a wrong MFA code', async () => {
-    vi.mocked(authService.elevate).mockRejectedValueOnce({ response: { data: { error: 'invalid mfa code' } } })
+    vi.mocked(bffElevate).mockRejectedValueOnce({ response: { data: { error: 'invalid mfa code' } } })
     const pending = requireElevation().catch(() => { /* cancelled below */ })
 
     await submitElevation('correct-password', '000000')

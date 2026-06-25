@@ -79,18 +79,15 @@ function safeRedirect(raw: string | undefined | null): string | undefined {
 async function handleSignIn() {
   authStore.clearError()
   isLoading.value = true
-  try {
-    const returnPath = safeRedirect(route.query.redirect as string | undefined)
-    await authStore.loginRedirect(returnPath)
-    // On success the browser navigates away to the AS — nothing more to do.
-  } catch {
-    // loginRedirect already set authStore.error; just re-enable the button.
-    isLoading.value = false
-  }
+  // Full-page navigation to the BFF (`/bff/login`), which runs the OAuth flow
+  // server-side and returns to `redirect`. The browser navigates away here —
+  // nothing after this runs in the happy path.
+  const returnPath = safeRedirect(route.query.redirect as string | undefined)
+  await authStore.loginRedirect(returnPath)
 }
 
 onMounted(() => {
-  // Preserve a callback error (set on a redirect back to Login); only clear when
+  // Preserve a login error (set on a redirect back to Login); only clear when
   // arriving fresh without one so a stale error doesn't linger.
   if (!route.query.error) authStore.clearError()
 })

@@ -51,18 +51,28 @@ export default defineConfig(({ mode }) => {
     },
 
     proxy: {
-      // Auth + OAuth routes → port 8080 (must be listed BEFORE the /api catch-all)
+      // BFF control plane + admin API → the local BFF (:8091), which mints the
+      // session cookie and injects the bearer. Mirrors the production topology
+      // (browser → BFF → backend). Listed BEFORE the issuer routes.
+      '^/bff': {
+        target:       'http://localhost:8091',
+        changeOrigin: true,
+      },
+      '^/api/admin': {
+        target:       'http://localhost:8091',
+        changeOrigin: true,
+      },
+      // Public, pre-auth issuer flows the BFF does not proxy → issuer (:8080).
       '^/api/auth': {
+        target:       'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '^/api/profile': {
         target:       'http://localhost:8080',
         changeOrigin: true,
       },
       '^/oauth': {
         target:       'http://localhost:8080',
-        changeOrigin: true,
-      },
-      // All other /api routes (/api/admin/*, /api/apps/*) → port 8081
-      '^/api': {
-        target:       'http://localhost:8081',
         changeOrigin: true,
       },
     },
@@ -111,9 +121,11 @@ export default defineConfig(({ mode }) => {
     // the per-test reset explicit and runner-version-independent.
     clearMocks:  true,
     env: {
-      // Provide a default value so secureConfig.ts does not throw when
-      // modules are imported by test files that do not override this env var.
+      // Origins the test axios instances resolve to. MSW registers handlers at
+      // this absolute BASE (see src/__tests__/msw/handlers.ts), so both the admin
+      // API and the public issuer flows must point here in the test env.
       VITE_ADMIN_API_URL: 'https://api.test.example.com',
+      VITE_OIDC_ISSUER:   'https://api.test.example.com',
     },
     coverage: {
       provider: 'v8',
@@ -136,8 +148,7 @@ export default defineConfig(({ mode }) => {
         'src/utils/secureConfig.ts',
         'src/services/api.ts',
         'src/services/authService.ts',
-        'src/services/oauth.ts',
-        'src/services/pkce.ts',
+        'src/services/session.ts',
         'src/services/adminGuards.ts',
         'src/security/csp.ts',
         'src/stores/authStore.ts',
