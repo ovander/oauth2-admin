@@ -20,9 +20,10 @@ admin.vandermoten.eu {
 		-Server
 	}
 
-	# BFF endpoints + admin API → internal admin BFF (the ONLY client of the
-	# admin API). flush_interval -1 keeps the SSE event stream unbuffered.
-	@bff path /bff/* /api/admin/*
+	# BFF endpoints + admin API + allowlisted issuer self-service (/api/profile)
+	# → internal admin BFF (the ONLY client of the admin API). The BFF injects the
+	# bearer server-side. flush_interval -1 keeps the SSE event stream unbuffered.
+	@bff path /bff/* /api/admin/* /api/profile
 	handle @bff {
 		reverse_proxy 127.0.0.1:8091 {
 			flush_interval -1

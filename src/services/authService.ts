@@ -28,9 +28,11 @@ export async function changePassword(currentPassword: string, newPassword: strin
 }
 
 export async function updateProfile(data: Partial<User>): Promise<User> {
-  // Profile self-service is a public-API flow on the issuer (:8080); the admin
-  // `/api/admin/profile` route is read-only.
-  const response = await issuerApi.put<User>('/api/profile', data)
+  // Profile self-service lives on the issuer (`/api/profile`); the admin
+  // `/api/admin/profile` route is read-only. The BFF allowlists and proxies
+  // `/api/profile` with server-side bearer injection + CSRF, so this is a
+  // same-origin cookie call — no token in the browser.
+  const response = await api.put<User>('/api/profile', data)
   return response.data
 }
 
