@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./public/socrate-logo.png" alt="Socrate" width="96" />
+  <img src="./docs/assets/socrate-logo.png" alt="Socrate" width="96" />
 </p>
 
 <h1 align="center">Socrate — Superadmin Portal</h1>
