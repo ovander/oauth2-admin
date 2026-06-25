@@ -5,12 +5,12 @@
  * error states (401, 403, 5xx) or alternative responses.
  * server.resetHandlers() in afterEach restores these defaults.
  *
- * These mirror the Socrate backend contract:
- *   • OAuth API   — /oauth/token (Authorization Code + PKCE exchange + refresh),
- *     /api/auth/* (refresh, logout), /api/profile — same gateway origin.
- *   • Admin API   — /api/admin/*   (profile, sessions, …)
- *   • Login (credentials + MFA) is delegated to the AS hosted login; the SPA
- *     only exchanges the returned authorization code at /oauth/token.
+ * These mirror the BFF + Socrate backend contract under the cookie-session
+ * model:
+ *   • BFF control plane — /bff/session, /bff/logout, /bff/elevate (same-origin).
+ *   • Admin API   — /api/admin/*  reached through the BFF; the browser sends the
+ *     session cookie (no bearer — the BFF injects it server-side).
+ *   • Issuer API  — /api/auth/* (reset), /api/profile — public/pre-auth flows.
  */
 import { http, HttpResponse } from 'msw'
 
@@ -36,40 +36,32 @@ export const REFRESH_RESPONSE = {
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 export const handlers = [
-  // POST /oauth/token ── Authorization Code + PKCE exchange (and refresh_token grant)
-  http.post(`${BASE}/oauth/token`, async ({ request }) => {
-    const params = new URLSearchParams(await request.text())
-    const grant  = params.get('grant_type')
-
-    if (grant === 'authorization_code') {
-      // A valid exchange carries the code + the PKCE verifier.
-      if (params.get('code') && params.get('code_verifier')) {
-        return HttpResponse.json(LOGIN_RESPONSE)
-      }
-      return HttpResponse.json({ error: 'invalid_grant' }, { status: 400 })
+  // ── BFF control plane (same-origin) ──────────────────────────────────────────
+  // GET /bff/session ── authenticated bootstrap + CSRF token
+  http.get('/bff/session', () =>
+    HttpResponse.json({
+      authenticated: true,
+      user: { sub: '1', email: ADMIN_USER.email, name: ADMIN_USER.name, roles: ['super_admin'] },
+      csrf: 'test-csrf-token',
+    }),
+  ),
+  // POST /bff/logout ── revoke session
+  http.post('/bff/logout', () => new HttpResponse(null, { status: 204 })),
+  // POST /bff/elevate ── server-side step-up
+  http.post('/bff/elevate', async ({ request }) => {
+    const body = await request.json() as { password?: string; mfa_code?: string }
+    if (body.password === 'correct-password') {
+      return new HttpResponse(null, { status: 204 })
     }
-
-    if (grant === 'refresh_token') {
-      return HttpResponse.json(REFRESH_RESPONSE)
+    if (!body.mfa_code) {
+      return HttpResponse.json({ error: 'mfa_required' }, { status: 401 })
     }
-
-    return HttpResponse.json({ error: 'unsupported_grant_type' }, { status: 400 })
+    return HttpResponse.json({ error: 'invalid credentials' }, { status: 401 })
   }),
 
-  // POST /api/auth/logout ── public-API logout, always succeeds
-  http.post(`${BASE}/api/auth/logout`, () => HttpResponse.json({})),
-
-  // GET /api/admin/profile ── validates Bearer header presence
-  http.get(`${BASE}/api/admin/profile`, ({ request }) => {
-    const auth = request.headers.get('Authorization')
-    if (!auth?.startsWith('Bearer ')) {
-      return HttpResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    return HttpResponse.json(ADMIN_USER)
-  }),
-
-  // Note: silent refresh is the /oauth/token `grant_type=refresh_token` branch
-  // above (cookie Path=/oauth/token) — not a separate endpoint.
+  // GET /api/admin/profile ── cookie-authenticated (no bearer in the browser;
+  // the BFF injects it server-side, so MSW does not check Authorization here).
+  http.get(`${BASE}/api/admin/profile`, () => HttpResponse.json(ADMIN_USER)),
 
   // POST /api/auth/reset-password
   http.post(`${BASE}/api/auth/reset-password`, async ({ request }) => {

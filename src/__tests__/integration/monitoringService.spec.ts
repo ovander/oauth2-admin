@@ -8,17 +8,16 @@
  * The SSE helper (connectSecurityEventStream) is not covered here — it relies
  * on fetch + ReadableStream which is exercised manually.
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../msw/server'
 import { BASE } from '../msw/handlers'
 
 import * as monitoringService from '@/services/monitoringService'
-import { tokenStore } from '@/services/api'
 
-beforeEach(() => {
-  tokenStore.set('test-access-token') // these routes require a Bearer token
-})
+// Under the BFF model the browser sends no bearer — auth rides on the session
+// cookie and the BFF injects the token server-side. These MSW routes therefore
+// do not assert an Authorization header.
 
 // ─── Sessions ─────────────────────────────────────────────────────────────────
 describe('monitoringService — sessions', () => {

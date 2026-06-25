@@ -1,42 +1,18 @@
 import api, { issuerApi } from './api'
 import type { User } from '@/types/auth'
 
-// Admin login is no longer a first-party password request. Authentication is an
-// Authorization Code + PKCE flow delegated to the AS hosted login — see
-// services/oauth.ts and the auth store's loginRedirect()/handleCallback().
+// Authentication is an Authorization Code + PKCE flow driven entirely by the BFF
+// (server-side). The SPA holds no tokens — see services/session.ts. Login,
+// logout and step-up elevation all go through the BFF (`/bff/*`).
 //
 // Endpoint → instance:
-//   • api       → admin RESOURCE server (/api/admin/* on :8081, Bearer)
-//   • issuerApi → OIDC issuer / public API (/api/auth/*, /api/profile on :8080,
-//                 carries credentials so the refresh cookie rides along)
-
-export async function logout(): Promise<void> {
-  // Revoke the session + clear the HttpOnly refresh cookie server-side. This
-  // lives on the ISSUER (:8080) where the cookie is set, NOT the admin API.
-  // Best-effort — the store always clears client state regardless of outcome.
-  await issuerApi.post('/api/auth/logout').catch(() => {/* swallow */})
-}
+//   • api       → admin API via the BFF (same-origin /api/admin/*, cookie auth)
+//   • issuerApi → public, pre-auth issuer flows the BFF does not proxy
+//                 (forgot/reset password)
 
 export async function getProfile(): Promise<User> {
   const response = await api.get<User>('/api/admin/profile')
   return response.data
-}
-
-/**
- * Step-up (elevation) re-authentication for destructive admin actions
- * (ADMIN-SPA-MIGRATION.md §5). Returns a FRESH access token (new `auth_time`);
- * the session/refresh cookie is unchanged. Use the returned token to retry the
- * action that triggered `403 elevation_required`.
- *
- * A wrong/absent MFA code rejects with `401 { error: "mfa_required" }` or
- * `401 { error: "invalid mfa code" }` — the caller re-prompts and resubmits.
- */
-export async function elevate(password: string, mfaCode?: string): Promise<string> {
-  const response = await api.post<{ access_token: string }>('/api/admin/elevate', {
-    password,
-    ...(mfaCode ? { mfa_code: mfaCode } : {}),
-  })
-  return response.data.access_token
 }
 
 /**

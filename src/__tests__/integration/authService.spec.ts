@@ -2,71 +2,41 @@
  * Integration tests for authService.ts.
  *
  * These tests call the real authService functions through the real Axios
- * instance — no vi.mock().  MSW intercepts HTTP requests at the network layer.
+ * instances — no vi.mock(). MSW intercepts HTTP requests at the network layer.
  *
- * Covered:
- *   logout()             — swallows server errors (fire-and-forget contract)
- *   getProfile()         — success, bearer token forwarded
+ * Covered (BFF cookie model):
+ *   getProfile()         — admin profile via the BFF (no bearer in the browser)
  *   resetPassword()      — token sent in request body (not URL) — F-08
  *   requestPasswordReset — happy path
  *   updateProfile()      — partial update merged
+ *   changePassword()     — current+new sent; wrong current → 401 (no Login bounce)
  *
- * Login itself is an Authorization Code + PKCE flow (services/oauth.ts) and is
- * covered by oauth.spec.ts and authStore.spec.ts.
+ * Login, logout and step-up elevation are BFF flows (services/session.ts) and
+ * are covered by session.spec.ts and authStore.spec.ts.
  */
-import { describe, it, expect, beforeEach }  from 'vitest'
-import { http, HttpResponse }                from 'msw'
-import { server }                            from '../msw/server'
-import { BASE, ADMIN_USER }  from '../msw/handlers'
+import { describe, it, expect }  from 'vitest'
+import { http, HttpResponse }    from 'msw'
+import { server }                from '../msw/server'
+import { BASE, ADMIN_USER }      from '../msw/handlers'
 
 import * as authService  from '@/services/authService'
-import { tokenStore }    from '@/services/api'
-
-// ─────────────────────────────────────────────────────────────────────────────
-beforeEach(() => {
-  tokenStore.clear()
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-describe('authService — logout()', () => {
-  it('resolves without throwing on a 200 response', async () => {
-    await expect(authService.logout()).resolves.toBeUndefined()
-  })
-
-  it('swallows a 500 error — fire-and-forget contract', async () => {
-    server.use(
-      http.post(`${BASE}/api/auth/logout`, () =>
-        HttpResponse.json({ error: 'Internal server error' }, { status: 500 }),
-      ),
-    )
-    // Must NOT throw — authStore always clears local state regardless
-    await expect(authService.logout()).resolves.toBeUndefined()
-  })
-})
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe('authService — getProfile()', () => {
-  it('returns the user profile when a valid Bearer token is in memory', async () => {
-    tokenStore.set('test-access-token')
-
+  it('returns the admin profile (cookie-authenticated through the BFF)', async () => {
     const profile = await authService.getProfile()
 
     expect(profile).toMatchObject({ email: 'admin@example.com', role: 'super_admin' })
   })
 
-  it('throws when no Bearer token is present and the refresh cookie is absent', async () => {
-    // The api interceptor catches the 401 and attempts a silent refresh against
-    // the /oauth/token refresh grant. Override it to simulate no valid refresh
-    // cookie: the backend answers `400 invalid or expired refresh token`, and
-    // that refresh failure is what propagates to the caller.
+  it('propagates a 401 when the session is gone', async () => {
     server.use(
-      http.post(`${BASE}/oauth/token`, () =>
-        HttpResponse.json({ error: 'invalid or expired refresh token' }, { status: 400 }),
+      http.get(`${BASE}/api/admin/profile`, () =>
+        HttpResponse.json({ error: 'Unauthorized' }, { status: 401 }),
       ),
     )
-    // tokenStore already cleared in beforeEach
     await expect(authService.getProfile()).rejects.toMatchObject({
-      response: { status: 400 },
+      response: { status: 401 },
     })
   })
 })
@@ -121,28 +91,9 @@ describe('authService — requestPasswordReset()', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('authService — updateProfile()', () => {
   it('sends the partial update and returns the merged user object', async () => {
-    tokenStore.set('test-access-token')
-
     const result = await authService.updateProfile({ name: 'New Name' })
 
     expect(result).toMatchObject({ ...ADMIN_USER, name: 'New Name' })
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-describe('authService — elevate() (step-up)', () => {
-  it('returns a fresh access token for the right password', async () => {
-    tokenStore.set('test-access-token')
-
-    const token = await authService.elevate('correct-password')
-
-    expect(token).toBe('elevated-access-token')
-  })
-
-  it('forwards the mfa_code and rejects 401 for a wrong password', async () => {
-    await expect(
-      authService.elevate('wrong-password', '123456'),
-    ).rejects.toMatchObject({ response: { status: 401, data: { error: 'invalid credentials' } } })
   })
 })
 
@@ -163,7 +114,9 @@ describe('authService — changePassword()', () => {
     expect(captured).toEqual({ current_password: 'correct-password', new_password: 'NewP@ss1234567890' })
   })
 
-  it('rejects 401 when the current password is wrong (no silent-refresh masking)', async () => {
+  it('rejects 401 for a wrong current password WITHOUT bouncing to Login', async () => {
+    // The 401-redirect interceptor must exempt change-password (form error, not
+    // session expiry), so the error reaches the caller for inline display.
     await expect(
       authService.changePassword('wrong-current', 'NewP@ss1234567890'),
     ).rejects.toMatchObject({ response: { status: 401 } })

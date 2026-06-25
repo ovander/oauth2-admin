@@ -43,6 +43,7 @@ func (a *app) handler() http.Handler {
 		mux.HandleFunc("GET /bff/callback", a.handleCallback)
 		mux.HandleFunc("GET /bff/session", a.handleSession)
 		mux.HandleFunc("POST /bff/logout", a.handleLogout)
+		mux.HandleFunc("POST /bff/elevate", a.handleElevate)
 	}
 
 	// Admin API: session→token injection in Phase 2, pass-through otherwise.

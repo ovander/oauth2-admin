@@ -1,16 +1,18 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** Admin resource-server origin (/api/admin/*). HTTPS in production. Required. */
-  readonly VITE_ADMIN_API_URL: string
-  /** OIDC issuer origin (authorize/token/refresh/logout). Defaults to VITE_ADMIN_API_URL. */
+  /**
+   * Admin API origin. Defaults to "" (same-origin) under the BFF model — the
+   * SPA calls relative `/api/admin/*` and the BFF injects the bearer. May be set
+   * to an absolute HTTPS origin for split-origin setups.
+   */
+  readonly VITE_ADMIN_API_URL?: string
+  /**
+   * Public OIDC issuer origin, used ONLY for the public pre-auth flows the BFF
+   * does not proxy (forgot/reset password). Defaults to "" (same-origin / dev
+   * proxy). HTTPS in production when set.
+   */
   readonly VITE_OIDC_ISSUER?: string
-  /** Public OAuth client id registered for the admin console. */
-  readonly VITE_OAUTH_CLIENT_ID?: string
-  /** Space-delimited scopes requested at /oauth/authorize. */
-  readonly VITE_OAUTH_SCOPES?: string
-  /** App path the AS redirects back to (must match the registered redirect URI). */
-  readonly VITE_OAUTH_REDIRECT_PATH?: string
 }
 
 interface ImportMeta {

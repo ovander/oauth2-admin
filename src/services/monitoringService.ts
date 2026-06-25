@@ -1,4 +1,4 @@
-import api, { tokenStore } from './api'
+import api from './api'
 import { ADMIN_API_URL } from '@/utils/secureConfig'
 import type {
   AdminSessionsListResponse,
@@ -121,9 +121,10 @@ export async function downloadReport(id: string): Promise<Blob> {
 
 // ─── Real-time event stream (/api/admin/events/stream, SSE) ──────────────────
 //
-// EventSource cannot attach an Authorization header, and the admin access token
-// lives only in memory (not a cookie), so we consume the SSE stream with fetch +
-// a ReadableStream reader and parse the frames ourselves.
+// EventSource cannot send our custom CSRF/marker header, so we consume the SSE
+// stream with fetch + a ReadableStream reader and parse the frames ourselves.
+// Auth is the BFF session cookie (credentials: 'include'); the BFF injects the
+// bearer server-side — no Authorization header is set in the browser.
 
 export interface EventStreamFilters {
   severity?:   string
@@ -153,7 +154,6 @@ export function connectSecurityEventStream(
         signal: controller.signal,
         headers: {
           Accept: 'text/event-stream',
-          Authorization: `Bearer ${tokenStore.get() ?? ''}`,
           'X-Requested-By': 'oauth2-admin',
         },
       })

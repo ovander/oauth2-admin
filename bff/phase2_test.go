@@ -40,7 +40,7 @@ func (c *capture) get() (string, string, int) {
 
 // phase2Harness wires the BFF against a mock admin API and a mock Socrate token
 // endpoint. The access token is a JWT carrying sub/email/roles.
-func phase2Harness(t *testing.T) (http.Handler, *app, *capture, string) {
+func phase2Harness(t *testing.T) (http.Handler, *app, *capture, string, string) {
 	t.Helper()
 
 	accessJWT := makeJWT(map[string]any{
@@ -48,9 +48,31 @@ func phase2Harness(t *testing.T) (http.Handler, *app, *capture, string) {
 		"roles": []any{"jwt_role"},
 	})
 
+	// An elevated token distinguishable from the login token, with a future exp.
+	elevatedJWT := makeJWT(map[string]any{
+		"sub": "user-1", "email": "admin@example.com", "name": "Admin",
+		"roles": []any{"jwt_role"}, "exp": float64(time.Now().Add(5 * time.Minute).Unix()),
+	})
+
 	cap := &capture{}
 	admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cap.record(r)
+		// Step-up: require an MFA code; without it, challenge like the real server.
+		if r.URL.Path == "/api/admin/elevate" {
+			var in struct {
+				Password string `json:"password"`
+				MfaCode  string `json:"mfa_code"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			w.Header().Set("Content-Type", "application/json")
+			if in.MfaCode == "" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "mfa_required"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": elevatedJWT})
+			return
+		}
 		_, _ = io.WriteString(w, "admin-ok")
 	}))
 	t.Cleanup(admin.Close)
@@ -90,7 +112,7 @@ func phase2Harness(t *testing.T) (http.Handler, *app, *capture, string) {
 		CookieSecure: false,
 	}
 	a := newApp(cfg)
-	return a.handler(), a, cap, accessJWT
+	return a.handler(), a, cap, accessJWT, elevatedJWT
 }
 
 func sessionCookie(t *testing.T, rr *httptest.ResponseRecorder, name string) *http.Cookie {
@@ -105,7 +127,7 @@ func sessionCookie(t *testing.T, rr *httptest.ResponseRecorder, name string) *ht
 }
 
 func TestPhase2FullFlow(t *testing.T) {
-	h, a, cap, accessJWT := phase2Harness(t)
+	h, a, cap, accessJWT, _ := phase2Harness(t)
 	name := a.cookieName()
 
 	// 1. /bff/login → 302 to the AS authorize endpoint with PKCE params.
@@ -213,7 +235,7 @@ func TestPhase2FullFlow(t *testing.T) {
 }
 
 func TestUnknownStateRejected(t *testing.T) {
-	h, _, _, _ := phase2Harness(t)
+	h, _, _, _, _ := phase2Harness(t)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/callback?code=abc&state=forged", nil))
 	if rr.Code != http.StatusBadRequest {
@@ -222,7 +244,7 @@ func TestUnknownStateRejected(t *testing.T) {
 }
 
 func TestDualModePassThrough(t *testing.T) {
-	h, _, cap, _ := phase2Harness(t)
+	h, _, cap, _, _ := phase2Harness(t)
 	// No session cookie → the browser's own bearer is forwarded unchanged.
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
 	req.Header.Set("Authorization", "Bearer browser-token")
@@ -237,7 +259,7 @@ func TestDualModePassThrough(t *testing.T) {
 }
 
 func TestProactiveRefresh(t *testing.T) {
-	h, a, cap, _ := phase2Harness(t)
+	h, a, cap, _, _ := phase2Harness(t)
 	// Inject a session whose access token is within 30s of expiry.
 	sid, _ := randomToken(16)
 	now := time.Now()
@@ -254,6 +276,57 @@ func TestProactiveRefresh(t *testing.T) {
 
 	if gotAuth, _, _ := cap.get(); gotAuth != "Bearer refreshed-access" {
 		t.Errorf("upstream auth = %q, want refreshed token injected", gotAuth)
+	}
+}
+
+func TestElevation(t *testing.T) {
+	h, a, cap, accessJWT, elevatedJWT := phase2Harness(t)
+	// Seed a logged-in session with a known CSRF token.
+	sid, _ := randomToken(16)
+	now := time.Now()
+	a.store.Put(&Session{
+		ID: sid, AccessToken: accessJWT, RefreshToken: "refresh-1",
+		AccessExpiry: now.Add(5 * time.Minute), CSRF: "csrf-1", Created: now, LastSeen: now,
+		User: UserInfo{Sub: "user-1"},
+	})
+	cookie := &http.Cookie{Name: a.cookieName(), Value: sid}
+
+	// Missing CSRF → 403, no upstream call.
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/bff/elevate", strings.NewReader(`{"password":"pw","mfa_code":"123456"}`))
+	req.AddCookie(cookie)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("elevate without csrf = %d, want 403", rr.Code)
+	}
+
+	// Without MFA → upstream challenges; the BFF forwards 401 mfa_required verbatim.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/bff/elevate", strings.NewReader(`{"password":"pw"}`))
+	req.AddCookie(cookie)
+	req.Header.Set("X-CSRF-Token", "csrf-1")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized || !strings.Contains(rr.Body.String(), "mfa_required") {
+		t.Fatalf("elevate without mfa = %d %q, want 401 mfa_required", rr.Code, rr.Body.String())
+	}
+
+	// With MFA + CSRF → 204; the elevated token is absorbed into the session.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/bff/elevate", strings.NewReader(`{"password":"pw","mfa_code":"123456"}`))
+	req.AddCookie(cookie)
+	req.Header.Set("X-CSRF-Token", "csrf-1")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("elevate = %d, want 204 (body %q)", rr.Code, rr.Body.String())
+	}
+
+	// A subsequent admin call now injects the ELEVATED token, not the original.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/admin/x", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(rr, req)
+	if gotAuth, _, _ := cap.get(); gotAuth != "Bearer "+elevatedJWT {
+		t.Errorf("after elevate upstream auth = %q, want elevated token", gotAuth)
 	}
 }
 

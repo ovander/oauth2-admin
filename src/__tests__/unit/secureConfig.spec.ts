@@ -22,20 +22,20 @@ describe('secureConfig — ADMIN_API_URL validation', () => {
     vi.unstubAllEnvs()
   })
 
-  // ── Missing URL ─────────────────────────────────────────────────────────────
+  // ── Missing URL → same-origin (BFF) ─────────────────────────────────────────
+  // Under the BFF model an empty value is VALID: it means same-origin, so the
+  // SPA calls relative `/api/admin/*` and the BFF injects the bearer.
 
-  it('throws when VITE_ADMIN_API_URL is an empty string', async () => {
+  it('defaults to same-origin ("") when VITE_ADMIN_API_URL is an empty string', async () => {
     vi.stubEnv('VITE_ADMIN_API_URL', '')
-    await expect(import('@/utils/secureConfig')).rejects.toThrow(
-      '[CONFIG] VITE_ADMIN_API_URL is required',
-    )
+    const { ADMIN_API_URL } = await import('@/utils/secureConfig')
+    expect(ADMIN_API_URL).toBe('')
   })
 
-  it('throws when VITE_ADMIN_API_URL is whitespace only', async () => {
+  it('defaults to same-origin ("") when VITE_ADMIN_API_URL is whitespace only', async () => {
     vi.stubEnv('VITE_ADMIN_API_URL', '   ')
-    await expect(import('@/utils/secureConfig')).rejects.toThrow(
-      '[CONFIG] VITE_ADMIN_API_URL is required',
-    )
+    const { ADMIN_API_URL } = await import('@/utils/secureConfig')
+    expect(ADMIN_API_URL).toBe('')
   })
 
   // ── Valid HTTPS URL ─────────────────────────────────────────────────────────
