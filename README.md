@@ -1,326 +1,208 @@
-# Socrate — Superadmin Portal
+<p align="center">
+  <img src="./docs/assets/socrate-logo.png" alt="Socrate" width="96" />
+</p>
 
-A modern, production-ready **Superadmin Portal** for the [Socrate](https://github.com/ovander/go-oauth2) OAuth2 / OpenID Connect platform, built with Vue.js 3, PrimeVue 4, and Tailwind CSS 4.
+<h1 align="center">Socrate — Superadmin Portal</h1>
 
-> ⚠️ **This portal is for Superadmins only.** Superadmins manage the Socrate OAuth2 server itself — creating applications, managing global users, and monitoring server-wide security. App Admins should use their application's admin interface.
+<p align="center">
+  The privileged admin console for the
+  <a href="https://github.com/ovander/go-oauth2">Socrate</a> OAuth2 / OpenID
+  Connect platform — built with Vue 3, PrimeVue 4 and Tailwind CSS 4, and held to
+  the same <strong>Tier-0</strong> hardening bar as the backend.
+</p>
 
-![OAuth2 Admin](https://img.shields.io/badge/Vue.js-3.5-green)
-![PrimeVue](https://img.shields.io/badge/PrimeVue-4.2-blue)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind-4.0-cyan)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)
+<p align="center">
+  <img src="https://img.shields.io/badge/Vue.js-3.5-green" alt="Vue.js">
+  <img src="https://img.shields.io/badge/PrimeVue-4.2-blue" alt="PrimeVue">
+  <img src="https://img.shields.io/badge/Tailwind-4.0-cyan" alt="Tailwind CSS">
+  <img src="https://img.shields.io/badge/TypeScript-5.6-blue" alt="TypeScript">
+</p>
+
+> ⚠️ **Superadmins only.** This portal manages the OAuth2 server — applications,
+> global users, and server-wide security. App Admins should use their
+> application's own admin interface.
+
+## Documentation
+
+| Doc | What's in it |
+|---|---|
+| [`docs/getting-started.md`](./docs/getting-started.md) | Local setup end-to-end (incl. backend prerequisites) + a troubleshooting table |
+| [`ARCHITECTURE.md`](./ARCHITECTURE.md) | Two-origin model, token/cookie lifecycle, auth-flow sequence diagrams |
+| [`SECURITY.md`](./SECURITY.md) | Security controls, automated gates, deployment requirements |
+| [`docs/security-headers.md`](./docs/security-headers.md) | CSP + headers the reverse proxy must serve |
+| [`docs/adr/`](./docs/adr/) | Architecture Decision Records (the *why*) |
+| [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Quality gates, conventions, PR flow |
+| [`CHANGELOG.md`](./CHANGELOG.md) | Notable changes |
+
+## Security at a glance
+
+- **Authorization Code + PKCE** (public client) — login delegated to the Socrate
+  hosted page; the SPA never sees the password or MFA code.
+- **Access token in memory only**; **refresh token in an HttpOnly, `SameSite=Strict`
+  cookie** (rotated, path-scoped) the browser holds but JS can't read.
+- **Step-up (elevation)** on destructive actions and a **forced-password-change**
+  gate, handled centrally for every admin call.
+- **Strict, unit-tested CSP** + Trusted Types (Report-Only rollout).
+- See [`SECURITY.md`](./SECURITY.md) and the [ADRs](./docs/adr/) for the rationale.
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Port 8081 (Admin API)                        │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  SUPERADMIN PORTAL (this frontend)                        │  │
-│  │  • Manages OAuth2 server itself                           │  │
-│  │  • Creates/manages applications                           │  │
-│  │  • Global user administration                             │  │
-│  │  • Login: email + password (no app context)               │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+Socrate runs **split-port**, exposing two origins the SPA talks to separately:
 
-┌─────────────────────────────────────────────────────────────────┐
-│                    Port 8080 (OAuth2 API)                       │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  APP USERS & APP ADMINS                                   │  │
-│  │  • App Admins: Manage users within their specific app     │  │
-│  │  • App Users: Regular end-users                           │  │
-│  │  • Login: email + password + app_client_id                │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
 ```
+ Browser (SPA)
+   ├── authorize · token · refresh · logout · profile ──►  :8080  OIDC issuer   (VITE_OIDC_ISSUER)
+   └── /api/admin/*  (Authorization: Bearer) ───────────►  :8081  Admin API     (VITE_ADMIN_API_URL)
+```
+
+The issuer (authenticate + get tokens) and the resource server (admin API you
+call with the token) are separate services. In production a single gateway may
+front both. Full details + sequence diagrams in [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ## Features
 
 ### Dashboard
 - Real-time statistics for applications, users, and sessions
 - Login activity trends with interactive charts
-- System health monitoring
-- Recent activity feed
-- Quick action shortcuts
+- System health monitoring, recent activity feed, quick actions
 
 ### Applications Management
-- Full CRUD operations for OAuth2 applications
-- Client ID/Secret management with secure regeneration
-- Configure redirect URIs, grant types, and scopes
-- PKCE enforcement toggle
-- Token TTL configuration
+- Full CRUD for OAuth2 applications; client ID/secret with secure rotation
+- Redirect URIs, grant types, scopes, PKCE toggle, token TTLs
 - Per-application user management
 
 ### User Management
-- User listing with search and filtering
-- Role-based access control (Super Admin, App Admin, App Manager, Viewer)
-- Account status management (lock/unlock)
-- Password reset functionality
-- Email verification status
-- Bulk actions support
+- Listing with search/filter; RBAC (Super Admin, App Admin, App Manager, Viewer)
+- Account lock/unlock, password reset, email-verification status, bulk actions
 
 ### Security & Audit
-- Security dashboard with threat metrics and a live event stream (SSE)
-- Security event log with filtering
-- Active session monitoring across all applications
-- Blocked-IP management and per-IP reputation lookup
-- Alert rules (create/edit/delete) and triggered-alert history with acknowledgement
-- Token analytics and geographic login activity
-- On-demand security report generation and download
-- Comprehensive admin audit logs with export
+- Security dashboard with a live event stream (SSE)
+- Event log, active-session monitoring, blocked-IP management + reputation lookup
+- Alert rules + triggered-alert history; security report generation; audit logs
 
 ### Settings & Profile
-- Server configuration overview
-- Connection health checks
-- Feature toggles visibility
-- Profile management
-- Email-based password reset
-- Own active-session overview
-- Dark/Light theme toggle
+- Server config overview, connection health checks, feature-toggle visibility
+- Profile management, password reset, own active-session overview, dark/light theme
 
 ## Tech Stack
 
-- **Framework**: Vue.js 3.5 with Composition API
-- **UI Library**: PrimeVue 4.2 with Aura theme
-- **Styling**: Tailwind CSS 4.0
-- **State Management**: Pinia
-- **Routing**: Vue Router 4
-- **HTTP Client**: Axios
-- **Charts**: Chart.js via PrimeVue
-- **Date Handling**: date-fns
-- **Build Tool**: Vite 6
-- **Type Checking**: TypeScript 5.6
+- **Framework:** Vue 3.5 (Composition API) · **UI:** PrimeVue 4.2 (Aura)
+- **Styling:** Tailwind CSS 4 · **State:** Pinia · **Routing:** Vue Router 4
+- **HTTP:** Axios · **Charts:** Chart.js · **Build:** Vite 6 · **Types:** TypeScript 5.6
+- **Tests:** Vitest + MSW (unit/integration), Playwright (e2e)
+
+## Getting Started
+
+> Full guide — including the **backend prerequisites** (PKCE client registration,
+> `AUTO_MIGRATE`, seeding a superadmin, CORS) — is in
+> [`docs/getting-started.md`](./docs/getting-started.md). The short version:
+
+```bash
+npm install
+cp .env.example .env.local      # configure the two origins (below)
+npm run dev                     # http://localhost:5173
+```
+
+### Configuration
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `VITE_ADMIN_API_URL` | ✅ | Admin resource server (`/api/admin/*`). `:8081` in split-port dev. HTTPS in prod. |
+| `VITE_OIDC_ISSUER` | — | OIDC issuer (authorize/token/refresh/logout). `:8080` in dev. Defaults to `VITE_ADMIN_API_URL`. |
+| `VITE_OAUTH_CLIENT_ID` | — | Public client id; **must equal** backend `ADMIN_CONSOLE_CLIENT_ID`. |
+| `VITE_OAUTH_SCOPES` | — | Default `openid email profile`. |
+| `VITE_OAUTH_REDIRECT_PATH` | — | Default `/auth/callback`; `origin+path` must be in `ADMIN_CONSOLE_REDIRECT_URIS`. |
+
+See [`.env.example`](./.env.example) for the annotated reference.
+
+## Scripts & quality gates
+
+```bash
+npm run dev            # dev server (CSP + security headers applied)
+npm run build          # vue-tsc type-check + production build
+npm run preview        # serve the build under the strict production CSP
+npm run test:run       # unit + integration tests (Vitest)
+npm run coverage       # coverage with the 80% gate
+npm run lint:check     # ESLint (security gate)
+npm run security:check # npm audit (high+) + lint
+```
 
 ## Project Structure
 
 ```
 src/
-├── assets/
-│   └── tailwind.css          # Tailwind configuration and custom styles
-├── components/
-│   ├── dashboard/            # Dashboard-specific components
-│   │   ├── ActivityFeed.vue
-│   │   ├── QuickActions.vue
-│   │   ├── StatCard.vue
-│   │   └── SystemHealth.vue
-│   └── ui/                   # Reusable UI components
-│       ├── EmptyState.vue
-│       ├── LoadingState.vue
-│       ├── PageHeader.vue
-│       └── StatusBadge.vue
-├── composables/              # Vue composables
-│   ├── useClipboard.ts
-│   ├── useConfirm.ts
-│   └── useToast.ts
-├── layouts/
-│   ├── AdminLayout.vue       # Main admin layout with sidebar
-│   └── AuthLayout.vue        # Authentication pages layout
-├── router/
-│   └── router.ts             # Route definitions and guards
-├── services/                 # API services
-│   ├── api.ts                # Axios instance with interceptors
-│   ├── applicationService.ts
-│   ├── authService.ts
-│   ├── dashboardService.ts
-│   ├── securityService.ts
-│   ├── settingsService.ts
-│   └── userService.ts
-├── stores/                   # Pinia stores
-│   ├── authStore.ts
-│   └── themeStore.ts
-├── types/                    # TypeScript type definitions
-│   ├── application.ts
-│   ├── auth.ts
-│   ├── dashboard.ts
-│   ├── security.ts
-│   └── user.ts
-├── utils/                    # Utility functions
-│   ├── devlog.ts
-│   └── formatDate.ts
-├── views/                    # Page components
-│   ├── applications/
-│   ├── auth/
-│   ├── dashboard/
-│   ├── errors/
-│   ├── logs/
-│   ├── security/
-│   ├── settings/
-│   └── users/
-├── App.vue
-└── main.ts
+├── main.ts · App.vue        # bootstrap + root (global dialogs, password-change watcher)
+├── router/router.ts         # routes + navigation guards (auth, roles, gates)
+├── stores/                  # Pinia: authStore (session), theme, version
+├── services/                # I/O + security layer
+│   ├── secureConfig (utils) # env validation / origin resolution
+│   ├── oauth.ts · pkce.ts   # Authorization Code + PKCE (issuer)
+│   ├── api.ts               # axios `api` (:8081) + `issuerApi` (:8080), tokenStore, interceptors
+│   ├── adminGuards.ts       # step-up + forced-password-change
+│   ├── authService.ts       # endpoint wrappers (routed per origin)
+│   └── *Service.ts          # domain data (apps, users, security, dashboard, settings, monitoring)
+├── security/csp.ts          # canonical CSP + security headers (single source, tested)
+├── views/                   # route components (auth, dashboard, apps, users, security, …)
+├── components/              # reusable UI (security/ElevationDialog, ui/, dashboard/)
+├── composables/ · utils/ · types/
+└── __tests__/               # Vitest unit + integration (MSW)
+e2e/                         # Playwright end-to-end
 ```
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+ 
-- npm 9+ or pnpm 8+
-
-### Installation
-
-```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
-```
-
-### Environment Variables
-
-Create a `.env` file in the root directory:
-
-```env
-# Superadmin API URL (Port 8081 - isolated admin port)
-VITE_ADMIN_API_URL=http://localhost:8081
-```
-
-See `.env.example` for detailed documentation.
-
-## API Integration
-
-This portal connects to **Port 8081** (Admin API) exclusively. All endpoints use the `/api/admin/*` prefix:
-
-### Authentication (Superadmin only)
-- `GET  /oauth/authorize` - Authorization Code + PKCE login (AS hosted login)
-- `POST /oauth/token` - Code→token exchange AND silent refresh (`grant_type=refresh_token`); the rotated refresh token rides an HttpOnly cookie scoped to `/oauth/token`
-- `POST /api/auth/logout` - Refresh-token revocation + cookie clear
-- `GET  /api/admin/profile` - Current superadmin profile
-
-### Application Management
-- `GET /api/admin/apps` - List all applications
-- `POST /api/admin/apps` - Create application
-- `GET /api/admin/apps/:id` - Get application details
-- `PUT /api/admin/apps/:id` - Update application
-- `DELETE /api/admin/apps/:id` - Delete application
-- `POST /api/admin/apps/:id/regenerate-secret` - Regenerate client secret
-
-### User Management (Global)
-- `GET /api/admin/users` - List all users
-- `POST /api/admin/users` - Create user
-- `GET /api/admin/users/:id` - Get user details
-- `PUT /api/admin/users/:id` - Update user
-- `DELETE /api/admin/users/:id` - Delete user
-- `POST /api/admin/users/:id/lock` - Lock user account
-- `POST /api/admin/users/:id/unlock` - Unlock user account
-
-### Security & Audit
-- `GET /api/admin/security-logs` - Security events
-- `GET /api/admin/logs` - Admin audit logs
-- `GET /api/admin/dashboard/stats` - Dashboard statistics
-- `GET /api/admin/dashboard/health` - System health
-
-### Settings
-- `GET /api/admin/settings/config` - Server configuration
-- `GET /api/admin/settings/test-db` - Test database connection
-- `GET /api/admin/settings/test-cache` - Test cache connection
-- `GET /admin/logs` - Admin audit logs
-- `GET /admin/dashboard/*` - Dashboard statistics
-
-## Authentication
-
-The portal is a first-party **public client** using **Authorization Code + PKCE**
-(OAuth 2.1). Credentials and MFA are handled by the authorization server's hosted
-login — the SPA never sees them.
-
-1. The user clicks **Sign in**; the SPA generates a PKCE `code_verifier`/`state`
-   (stored in `sessionStorage` for the round-trip) and redirects to
-   `/oauth/authorize` (`response_type=code`, `code_challenge_method=S256`).
-2. After authenticating (incl. MFA) at the AS, the browser is redirected back to
-   `/auth/callback?code=…&state=…`.
-3. The callback verifies `state` (CSRF/mix-up guard) and exchanges the code +
-   `code_verifier` at `/oauth/token`. The **access token is held in memory only**;
-   the **refresh token is set as an HttpOnly cookie** by the backend and is never
-   exposed to JavaScript.
-4. Axios interceptors attach the in-memory access token. On a `401`, a single
-   shared helper silently refreshes via the HttpOnly cookie (`POST /oauth/token`,
-   `grant_type=refresh_token`, rotated server-side) and retries the request.
-5. If refresh fails, the user is redirected to login. A cold page load
-   re-hydrates the session the same way (cookie → access token → profile).
 
 ## Role-Based Access Control
 
 | Role | Dashboard | Apps | Users | Security | Logs | Settings |
 |------|-----------|------|-------|----------|------|----------|
 | Super Admin | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| App Admin | ✓ | ✓ | Limited | ✓ | - | Limited |
-| App Manager | ✓ | Limited | Limited | - | - | Limited |
-| Viewer | ✓ | View Only | - | - | - | - |
+| App Admin | ✓ | ✓ | Limited | ✓ | – | Limited |
+| App Manager | ✓ | Limited | Limited | – | – | Limited |
+| Viewer | ✓ | View only | – | – | – | – |
+
+Roles are normalised to this canonical set before any check; unknown roles fall
+back to least privilege (`viewer`).
+
+## Testing
+
+- **Unit / integration:** Vitest + `@vue/test-utils`, with **MSW** intercepting
+  HTTP at the network layer (`src/__tests__/`). Security-critical modules are
+  covered and held to the 80% gate.
+- **E2E:** Playwright (`e2e/`), run against the dev server in CI.
+
+```bash
+npm run test:run      # all Vitest tests
+npx playwright test   # e2e (installs browsers in CI)
+```
+
+## Deployment
+
+Build to static assets and serve behind a reverse proxy / gateway:
+
+```bash
+npm run build         # → dist/  (content-hashed, no source maps, no inline scripts)
+```
+
+The gateway **must** mirror the canonical CSP + security headers
+(`src/security/csp.ts`) — generate the Nginx/Caddy config from
+[`docs/security-headers.md`](./docs/security-headers.md) — and route the two
+Socrate origins (or front both at one origin and point both env vars at it).
+Serve over HTTPS only.
 
 ## Customization
 
-### Theme Colors
-
-Edit `tailwind.config.js` to customize the color palette:
+### Theme colors
+Edit `tailwind.config.js`:
 
 ```js
-theme: {
-  extend: {
-    colors: {
-      brand: {
-        // Your custom brand colors
-      },
-      accent: {
-        // Your custom accent colors
-      }
-    }
-  }
-}
+theme: { extend: { colors: { brand: { /* … */ }, accent: { /* … */ } } } }
 ```
 
-### PrimeVue Theme
+### PrimeVue theme
+Aura preset with dark mode (`.dark` selector) — configured in `main.ts`.
 
-The application uses PrimeVue's Aura theme with dark mode support. Customize in `main.ts`:
+## Contributing
 
-```ts
-app.use(PrimeVue, {
-  theme: {
-    preset: Aura,
-    options: {
-      darkModeSelector: '.dark'
-    }
-  }
-})
-```
-
-## Build & Deployment
-
-```bash
-# Production build
-npm run build
-
-# The dist/ folder contains the built assets
-# Deploy to any static hosting (Nginx, Apache, Netlify, Vercel, etc.)
-```
-
-### Nginx Configuration Example
-
-```nginx
-server {
-    listen 80;
-    server_name admin.example.com;
-    root /var/www/oauth2-admin/dist;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    location /api {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) — quality gates, conventions, and PR flow.
 
 ## License
 
-MIT License - See LICENSE file for details.
+[MIT](./LICENSE).
