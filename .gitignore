@@ -73,3 +73,6 @@ Thumbs.db
 .cache/
 .temp/
 .tmp/
+
+# Deployment build artifacts
+deploy/_artifacts/

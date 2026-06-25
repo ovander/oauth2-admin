@@ -1,0 +1,40 @@
+# Socrate admin console — Caddy site block for admin.vandermoten.eu
+#
+# Caddy is the only public listener. It serves the built SPA and routes the BFF
+# + admin-API paths to the internal admin BFF (127.0.0.1:8091), which is the only
+# client of the loopback admin API. Import this from your main Caddyfile, e.g.:
+#     import /etc/caddy/sites/*.caddy
+
+admin.vandermoten.eu {
+	root * /srv/admin/dist
+
+	header {
+		# HSTS + sniffing/clickjacking defenses
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		# CSP — same-origin app (the BFF makes it all first-party). Mirrors the
+		# repo's canonical policy (src/security/csp.ts), relaxed to default-src
+		# 'self' for the cookie/BFF model.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+		# Don't advertise the server
+		-Server
+	}
+
+	# BFF endpoints + admin API → internal admin BFF (the ONLY client of the
+	# admin API). flush_interval -1 keeps the SSE event stream unbuffered.
+	@bff path /bff/* /api/admin/*
+	handle @bff {
+		reverse_proxy 127.0.0.1:8091 {
+			flush_interval -1
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# Everything else → the built SPA (history-API fallback).
+	# NOTE: once the SPA is cookie-only there is no direct browser→admin-API
+	# route — all admin traffic flows through @bff above.
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}

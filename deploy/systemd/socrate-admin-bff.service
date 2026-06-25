@@ -1,0 +1,42 @@
+[Unit]
+Description=Socrate Admin Console BFF
+Documentation=https://github.com/ovander/oauth2-admin/tree/main/bff
+After=network-online.target socrate.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=socrate
+Group=socrate
+EnvironmentFile=/etc/socrate/admin-bff.env
+ExecStart=/usr/local/bin/socrate-admin-bff
+Restart=on-failure
+RestartSec=2
+
+# ── Hardening ────────────────────────────────────────────────────────────────
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
