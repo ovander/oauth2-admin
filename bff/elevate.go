@@ -24,6 +24,9 @@ import (
 // Upstream errors (mfa_required / invalid mfa code) are forwarded verbatim so
 // the SPA's step-up dialog can re-prompt.
 func (a *app) handleElevate(w http.ResponseWriter, r *http.Request) {
+	if a.rateLimited(w, r, a.elevateLimiter) {
+		return
+	}
 	s, ok := a.sessionFromRequest(r)
 	if !ok {
 		http.Error(w, "no session", http.StatusUnauthorized)
