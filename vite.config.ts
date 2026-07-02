@@ -13,7 +13,12 @@ export default defineConfig(({ mode }) => {
   const apiOrigin = originOf(env.VITE_ADMIN_API_URL)
 
   return {
-    base: mode === 'production' ? '/admin/' : '/',
+    // The SPA is served at the ROOT of the admin host (Caddy: `root * /srv/admin/dist`,
+    // `try_files {path} /index.html`), so built asset paths must be root-relative.
+    // A '/admin/' base emitted /admin/assets/... which 404 under the root mount and
+    // rendered a blank page (audit C-1). Default to '/'; override via VITE_BASE if a
+    // sub-path deployment is ever needed.
+    base: env.VITE_BASE || '/',
 
   // Inject frontend version as compile-time constants (tree-shaken in prod).
   // APP_BUILD_DATE is the ISO timestamp of the build machine at bundle time.
