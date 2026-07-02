@@ -12,6 +12,11 @@ admin.vandermoten.eu {
 		# HSTS + sniffing/clickjacking defenses
 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 		X-Content-Type-Options "nosniff"
+		# Non-CSP hardening headers — mirror SECURITY_HEADERS in src/security/csp.ts.
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		Cross-Origin-Opener-Policy "same-origin"
 		# CSP — same-origin app (the BFF makes it all first-party). Mirrors the
 		# repo's canonical policy (src/security/csp.ts), relaxed to default-src
 		# 'self' for the cookie/BFF model.
