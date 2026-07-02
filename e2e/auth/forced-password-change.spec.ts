@@ -1,9 +1,11 @@
 /**
  * E2E — Forced password change (ADMIN-SPA-MIGRATION.md §6)
  *
- * When `must_change_password` is set, every /api/admin/* call returns
- * `403 password_change_required`. The SPA must gate the admin to the
- * change-password page and, on success, bounce them to a fresh login.
+ * When the admin must change their password, the BFF session is valid but every
+ * `/api/admin/*` call returns `403 password_change_required`. The axios
+ * interceptor flags the gate; the router guard then forces EVERY route to the
+ * change-password page. On a successful change the backend revokes all tokens
+ * (session dies) and the SPA bounces to a fresh login with a success notice.
  */
 import { test, expect } from '@playwright/test'
 import { mockMustChangePassword } from '../fixtures/api-mocks'

@@ -13,13 +13,13 @@
  * not by disabling the submit button (which is only disabled when !resetToken).
  */
 import { test, expect }      from '@playwright/test'
-import { mockRefreshFail }   from '../fixtures/api-mocks'
+import { mockUnauthenticatedSession } from '../fixtures/api-mocks'
 
 const VALID_PASSWORD = 'Str0ng!Pass1234X'  // 16 characters
 
 // ─── Fragment token ───────────────────────────────────────────────────────────
 test('token read from URL fragment (#token=) enables the form (F-08)', async ({ page }) => {
-  await mockRefreshFail(page)
+  await mockUnauthenticatedSession(page)
   await page.route('**/api/auth/reset-password', route =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
   )
@@ -33,7 +33,7 @@ test('token read from URL fragment (#token=) enables the form (F-08)', async ({ 
 })
 
 test('URL fragment is stripped from address bar after token extraction (F-08)', async ({ page }) => {
-  await mockRefreshFail(page)
+  await mockUnauthenticatedSession(page)
 
   await page.goto('/auth/reset-password#token=strip-me-token')
 
@@ -47,7 +47,7 @@ test('URL fragment is stripped from address bar after token extraction (F-08)', 
 })
 
 test('no token: form is disabled and an error message is shown', async ({ page }) => {
-  await mockRefreshFail(page)
+  await mockUnauthenticatedSession(page)
 
   await page.goto('/auth/reset-password')
 
@@ -61,7 +61,7 @@ test('no token: form is disabled and an error message is shown', async ({ page }
 
 // ─── Token sent in body (F-08) ────────────────────────────────────────────────
 test('reset token is sent in the request body, never in the URL (F-08)', async ({ page }) => {
-  await mockRefreshFail(page)
+  await mockUnauthenticatedSession(page)
 
   let capturedBody: Record<string, string> = {}
   let capturedUrl  = ''
@@ -91,7 +91,7 @@ test('reset token is sent in the request body, never in the URL (F-08)', async (
 
 // ─── Password validation (F-21) ──────────────────────────────────────────────
 test('short password triggers a validation error on submit (F-21)', async ({ page }) => {
-  await mockRefreshFail(page)
+  await mockUnauthenticatedSession(page)
 
   await page.goto('/auth/reset-password#token=some-token')
 
@@ -109,7 +109,7 @@ test('short password triggers a validation error on submit (F-21)', async ({ pag
 })
 
 test('mismatched passwords triggers a validation error on submit', async ({ page }) => {
-  await mockRefreshFail(page)
+  await mockUnauthenticatedSession(page)
 
   await page.goto('/auth/reset-password#token=some-token')
 

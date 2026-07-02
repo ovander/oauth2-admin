@@ -1,35 +1,26 @@
 /**
- * Reusable Playwright API mock helpers.
+ * Reusable Playwright API mock helpers for the BFF (Backend-for-Frontend) SPA.
  *
- * Each helper registers page.route() handlers that intercept real HTTP calls
- * the app makes to localhost:8081 (VITE_ADMIN_API_URL in the test env).
- * No real backend is needed.
+ * The browser is a pure cookie client: it holds only an opaque HttpOnly session
+ * cookie. There is NO access token, refresh token, PKCE verifier or OAuth state
+ * in JavaScript — the BFF runs the Authorization Code + PKCE flow server-side.
  *
- * Authentication is an Authorization Code + PKCE flow: the SPA redirects to the
- * authorization server's hosted login (/oauth/authorize) and exchanges the
- * returned code at /oauth/token. mockPkceLogin() simulates the hosted login by
- * intercepting the authorize navigation and bouncing straight back to the SPA
- * callback with a matching state + code.
+ * The SPA bootstraps auth on every cold navigation via:
+ *   • GET  /bff/session          → { authenticated, user?, csrf? }   (same-origin)
+ *   • GET  /api/admin/profile    → the admin User (role drives RBAC) (admin API)
+ * and starts login with a full-page navigation to:
+ *   • GET  /bff/login[?return_to=…]  (server-side OAuth — never completed here)
+ *
+ * These helpers register page.route() handlers that intercept those calls at the
+ * network layer, so no real backend is needed. `/bff/*` calls are same-origin
+ * (localhost:5174); `/api/admin/*` calls go to VITE_ADMIN_API_URL
+ * (localhost:8081 in the test env). We match both with `**`-prefixed globs.
  */
 import type { Page, Route } from '@playwright/test'
 
-export const API = 'http://localhost:8081'
-export const APP = 'http://localhost:5174'
-
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
-export const SUPER_ADMIN_USER = {
-  id:    '1',
-  email: 'admin@example.com',
-  name:  'Test Admin',
-  role:  'super_admin',
-}
-
-export const APP_ADMIN_USER = {
-  id:    '2',
-  email: 'appadmin@example.com',
-  name:  'App Admin',
-  role:  'app_admin',
-}
+// ─── Roles ─────────────────────────────────────────────────────────────────────
+export const ROLE_SUPER_ADMIN = 'super_admin'
+export const ROLE_APP_ADMIN   = 'app_admin'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function json(route: Route, body: unknown, status = 200) {
@@ -40,104 +31,107 @@ function json(route: Route, body: unknown, status = 200) {
   })
 }
 
-// ─── Auth flows ───────────────────────────────────────────────────────────────
+/** Build a full admin profile with the given role (shape of `/api/admin/profile`). */
+function buildProfile(role: string) {
+  return {
+    id:             1,
+    email:          'admin@example.com',
+    name:           'Test Admin',
+    role,
+    email_verified: true,
+    locked:         false,
+    mfa_enabled:    false,
+    created_at:     '2024-01-01T00:00:00Z',
+    updated_at:     '2024-01-01T00:00:00Z',
+  }
+}
+
+// ─── Session bootstrap ──────────────────────────────────────────────────────────
 
 /**
- * Simulate a full successful Authorization Code + PKCE login:
- *   • intercept the /oauth/authorize navigation and 302 back to the SPA
- *     callback, echoing the same `state` the SPA generated + a fake `code`
- *   • mock the /oauth/token exchange
- *   • mock the admin profile fetch
+ * Unauthenticated: `GET /bff/session` reports no session, so the router guard
+ * redirects protected routes to /auth/login and never fetches the profile.
  */
-export async function mockPkceLogin(
+export async function mockUnauthenticatedSession(page: Page) {
+  await page.route('**/bff/session', route => json(route, { authenticated: false }))
+}
+
+/**
+ * Authenticated: a valid BFF session plus a matching admin profile. The profile
+ * `role` is what drives `isAuthenticated` / `isSuperAdmin` in the store. A
+ * permissive catch-all handles any additional `/api/**` data calls guarded pages
+ * make on load so they don't fail against a non-existent backend.
+ */
+export async function mockAuthenticatedSession(
   page: Page,
-  { user = SUPER_ADMIN_USER, accessToken = 'e2e-access-token' } = {},
+  { role = ROLE_SUPER_ADMIN }: { role?: string } = {},
 ) {
-  await page.route(/\/oauth\/authorize/, async route => {
-    const state = new URL(route.request().url()).searchParams.get('state') ?? ''
-    await route.fulfill({
-      status:  302,
-      headers: { location: `${APP}/auth/callback?code=e2e-auth-code&state=${encodeURIComponent(state)}` },
-    })
-  })
-  await page.route(`${API}/oauth/token`, route =>
-    json(route, { access_token: accessToken, token_type: 'Bearer', expires_in: 900 }),
+  // Registered first → lowest priority (Playwright matches most-recent first).
+  await page.route('**/api/**', route => json(route, {}))
+  await page.route('**/bff/session', route =>
+    json(route, {
+      authenticated: true,
+      user: { sub: '1', email: 'admin@example.com', name: 'Test Admin', roles: [role] },
+      csrf: 'test-csrf-token',
+    }),
   )
-  await mockProfileSuccess(page, user)
+  await page.route('**/api/admin/profile', route => json(route, buildProfile(role)))
 }
 
-/** Logout — always succeeds. */
-export async function mockLogout(page: Page) {
-  await page.route(`${API}/api/auth/logout`, route => json(route, {}))
-}
-
-/** Profile — returns the supplied user. */
-export async function mockProfileSuccess(page: Page, user = SUPER_ADMIN_USER) {
-  await page.route(`${API}/api/admin/profile`, route => json(route, user))
-}
-
-/** Profile — returns 401 (unauthenticated). */
-export async function mockProfileFail(page: Page) {
-  await page.route(`${API}/api/admin/profile`, route =>
-    json(route, { message: 'Unauthorized' }, 401),
-  )
-}
+// ─── Login start (full-page redirect to the BFF) ────────────────────────────────
 
 /**
- * Silent refresh fails — the /oauth/token refresh grant returns 400 (no valid
- * refresh cookie). This is the SPA's only refresh path (cookie Path=/oauth/token).
+ * Intercept the full-page navigation to `/bff/login` that the "Sign in" button
+ * triggers. The real BFF would 302 to the authorization server; here we just
+ * serve a stub so the browser doesn't hit a dead origin. Tests capture the
+ * request (via page.waitForRequest) to assert the target and `return_to`.
  */
-export async function mockRefreshFail(page: Page) {
-  await page.route(`${API}/oauth/token`, route =>
-    json(route, { error: 'invalid or expired refresh token' }, 400),
+export async function mockBffLogin(page: Page) {
+  await page.route('**/bff/login*', route =>
+    route.fulfill({
+      status:      200,
+      contentType: 'text/html',
+      body:        '<!doctype html><html><body>bff-login-stub</body></html>',
+    }),
   )
 }
 
-/** Silent refresh — the /oauth/token refresh grant returns a fresh access token. */
-export async function mockRefreshSuccess(page: Page, accessToken = 'refreshed-token') {
-  await page.route(`${API}/oauth/token`, route =>
-    json(route, { access_token: accessToken, token_type: 'Bearer', expires_in: 900 }),
-  )
-}
+// ─── Forced password change (ADMIN-SPA-MIGRATION.md §6) ──────────────────────────
 
 /**
- * Simulate an already-authenticated session re-hydrated from the HttpOnly
- * refresh cookie on a cold load: refresh → token, profile → user.
- */
-export async function mockAuthenticatedSession(page: Page, user = SUPER_ADMIN_USER) {
-  await mockRefreshSuccess(page)
-  await mockProfileSuccess(page, user)
-}
-
-/**
- * Complete unauthenticated state:
- *   refresh → 401, profile → 401
- * This makes the router guard redirect to /auth/login.
- */
-export async function mockUnauthenticated(page: Page) {
-  await mockProfileFail(page)
-  await mockRefreshFail(page)
-}
-
-/**
- * Simulate a must-change-password admin: the cold-load refresh succeeds, but
- * every /api/admin/* call (here, the profile fetch) returns
- * `403 password_change_required` until the password is changed.
+ * Simulate a must-change-password admin: the BFF session is valid, but every
+ * `/api/admin/*` call returns `403 password_change_required` (here the profile
+ * fetch), which the axios interceptor turns into the forced-change gate. After a
+ * successful change the backend revokes all tokens, so the session flips to
+ * unauthenticated — modelled here with a mutable flag flipped by the
+ * change-password POST.
  */
 export async function mockMustChangePassword(page: Page) {
-  await mockRefreshSuccess(page)
-  await page.route(`${API}/api/admin/profile`, route =>
-    json(route, { error: 'password_change_required' }, 403),
+  const state = { changed: false }
+
+  await page.route('**/bff/session', route =>
+    json(
+      route,
+      state.changed
+        ? { authenticated: false }
+        : {
+            authenticated: true,
+            user: { sub: '1', email: 'admin@example.com', name: 'Test Admin', roles: [ROLE_SUPER_ADMIN] },
+            csrf: 'test-csrf-token',
+          },
+    ),
   )
-  await page.route(`${API}/api/admin/change-password`, route => json(route, {}))
-}
 
-/** Password reset — always succeeds. */
-export async function mockResetPasswordSuccess(page: Page) {
-  await page.route(`${API}/api/auth/reset-password`, route => json(route, {}))
-}
+  await page.route('**/api/admin/profile', route =>
+    state.changed
+      ? json(route, { message: 'Unauthorized' }, 401)
+      : json(route, { error: 'password_change_required' }, 403),
+  )
 
-/** Request password reset — always succeeds. */
-export async function mockRequestPasswordResetSuccess(page: Page) {
-  await page.route(`${API}/api/auth/request-password-reset`, route => json(route, {}))
+  await page.route('**/api/admin/change-password', route => {
+    state.changed = true
+    return json(route, {})
+  })
+
+  await page.route('**/bff/logout', route => json(route, {}))
 }
