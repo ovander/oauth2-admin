@@ -34,7 +34,12 @@ jobs:
         run: npm run lint
 
       - name: TypeScript type-check
-        run: npx vue-tsc --noEmit
+        # Build mode (-b) resolves the project references (tsconfig.node.json is
+        # a composite project that also owns src/security/csp.ts, imported by
+        # vite.config.ts). Plain `--noEmit` fails with TS6305 because it expects
+        # the referenced project's declaration outputs to already exist. This
+        # matches the `vue-tsc -b` used by `npm run build`.
+        run: npx vue-tsc -b
 
       - name: Build (production)
         run: npm run build
