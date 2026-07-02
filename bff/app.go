@@ -22,6 +22,9 @@ type app struct {
 	logins      *loginStore
 	oauth       *oauthClient
 	issuerProxy *httputil.ReverseProxy // authenticated issuer self-service (e.g. /api/profile)
+
+	loginLimiter   *rateLimiter // per-IP budget for /bff/login
+	elevateLimiter *rateLimiter // per-IP budget for /bff/elevate
 }
 
 func newApp(cfg *Config) *app {
@@ -31,6 +34,8 @@ func newApp(cfg *Config) *app {
 		a.logins = newLoginStore(10 * time.Minute)
 		a.oauth = newOAuthClient(cfg.OAuthUpstream, cfg.ClientID, cfg.ClientSecret)
 		a.issuerProxy = newReverseProxy(cfg.OAuthUpstream)
+		a.loginLimiter = newRateLimiter(cfg.LoginRate, rateWindow)
+		a.elevateLimiter = newRateLimiter(cfg.ElevateRate, rateWindow)
 	}
 	return a
 }
@@ -77,6 +82,8 @@ func (a *app) startBackground(ctx context.Context) {
 			case <-t.C:
 				a.store.Sweep()
 				a.logins.sweep()
+				a.loginLimiter.sweep()
+				a.elevateLimiter.sweep()
 			}
 		}
 	}()
@@ -126,6 +133,9 @@ func (a *app) sessionFromRequest(r *http.Request) (*Session, bool) {
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if a.rateLimited(w, r, a.loginLimiter) {
+		return
+	}
 	returnTo := sanitizeReturnTo(r.URL.Query().Get("return_to"))
 	verifier, err := randomToken(32)
 	if err != nil {

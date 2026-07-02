@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -27,6 +28,13 @@ type Config struct {
 	SessionIdle     time.Duration
 	SessionAbsolute time.Duration
 	CookieSecure    bool
+
+	// Per-IP request budgets (per rateWindow) for the credential-bearing
+	// endpoints. LoginRate guards /bff/login (login-state flooding); ElevateRate
+	// guards /bff/elevate (password + MFA brute force). A value <= 0 falls back
+	// to the default.
+	LoginRate   int
+	ElevateRate int
 
 	// AllowPassthrough, when true, restores the legacy dual-mode behaviour where
 	// a request without a valid session is proxied through with its own
@@ -55,6 +63,18 @@ func getDuration(key string, def time.Duration) (time.Duration, error) {
 	return d, nil
 }
 
+func getInt(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
+}
+
 func getBool(key string, def bool) bool {
 	switch strings.ToLower(os.Getenv(key)) {
 	case "":
@@ -79,6 +99,8 @@ func LoadConfig() (*Config, error) {
 		Scopes:           getenv("BFF_SCOPES", "openid profile email"),
 		CookieSecure:     getBool("BFF_COOKIE_SECURE", true),
 		AllowPassthrough: getBool("BFF_ALLOW_PASSTHROUGH", false),
+		LoginRate:        getInt("BFF_LOGIN_RATE", 10),
+		ElevateRate:      getInt("BFF_ELEVATE_RATE", 5),
 	}
 	if cfg.ListenAddr == "" {
 		return nil, fmt.Errorf("BFF_LISTEN_ADDR must not be empty")
