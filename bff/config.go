@@ -27,6 +27,13 @@ type Config struct {
 	SessionIdle     time.Duration
 	SessionAbsolute time.Duration
 	CookieSecure    bool
+
+	// AllowPassthrough, when true, restores the legacy dual-mode behaviour where
+	// a request without a valid session is proxied through with its own
+	// browser-supplied Authorization header (no CSRF check). It defaults to
+	// FALSE: the proxy is fail-closed and returns 401 when auth is enabled and
+	// there is no session. Only enable this temporarily for migration.
+	AllowPassthrough bool
 }
 
 func getenv(key, def string) string {
@@ -64,13 +71,14 @@ func getBool(key string, def bool) bool {
 // LoadConfig reads and validates configuration from the environment.
 func LoadConfig() (*Config, error) {
 	cfg := &Config{
-		ListenAddr:     getenv("BFF_LISTEN_ADDR", "127.0.0.1:8091"),
-		ClientID:       os.Getenv("BFF_CLIENT_ID"),
-		ClientSecret:   os.Getenv("BFF_CLIENT_SECRET"),
-		OAuthPublicURL: strings.TrimRight(getenv("BFF_OAUTH_PUBLIC_URL", "https://socrate.vandermoten.eu"), "/"),
-		PublicOrigin:   strings.TrimRight(getenv("BFF_PUBLIC_ORIGIN", "https://admin.vandermoten.eu"), "/"),
-		Scopes:         getenv("BFF_SCOPES", "openid profile email"),
-		CookieSecure:   getBool("BFF_COOKIE_SECURE", true),
+		ListenAddr:       getenv("BFF_LISTEN_ADDR", "127.0.0.1:8091"),
+		ClientID:         os.Getenv("BFF_CLIENT_ID"),
+		ClientSecret:     os.Getenv("BFF_CLIENT_SECRET"),
+		OAuthPublicURL:   strings.TrimRight(getenv("BFF_OAUTH_PUBLIC_URL", "https://socrate.vandermoten.eu"), "/"),
+		PublicOrigin:     strings.TrimRight(getenv("BFF_PUBLIC_ORIGIN", "https://admin.vandermoten.eu"), "/"),
+		Scopes:           getenv("BFF_SCOPES", "openid profile email"),
+		CookieSecure:     getBool("BFF_COOKIE_SECURE", true),
+		AllowPassthrough: getBool("BFF_ALLOW_PASSTHROUGH", false),
 	}
 	if cfg.ListenAddr == "" {
 		return nil, fmt.Errorf("BFF_LISTEN_ADDR must not be empty")

@@ -112,14 +112,17 @@ type tokenResponse struct {
 
 type oauthClient struct {
 	tokenURL     string
+	revokeURL    string
 	clientID     string
 	clientSecret string
 	http         *http.Client
 }
 
 func newOAuthClient(upstream *url.URL, clientID, clientSecret string) *oauthClient {
+	base := strings.TrimRight(upstream.String(), "/")
 	return &oauthClient{
-		tokenURL:     strings.TrimRight(upstream.String(), "/") + "/oauth/token",
+		tokenURL:     base + "/oauth/token",
+		revokeURL:    base + "/oauth/revoke",
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		http:         &http.Client{Timeout: 10 * time.Second},
@@ -164,6 +167,42 @@ func (c *oauthClient) exchange(ctx context.Context, code, redirectURI, verifier 
 		f.Set("client_secret", c.clientSecret)
 	}
 	return c.postForm(ctx, f)
+}
+
+// revoke asks the issuer to invalidate a single token (RFC 7009). It uses the
+// BFF's confidential client credentials and is best-effort: the caller logs and
+// continues on error, since the local session is cleared regardless. tokenTypeHint
+// is "refresh_token" or "access_token".
+func (c *oauthClient) revoke(ctx context.Context, token, tokenTypeHint string) error {
+	f := url.Values{}
+	f.Set("token", token)
+	if tokenTypeHint != "" {
+		f.Set("token_type_hint", tokenTypeHint)
+	}
+	f.Set("client_id", c.clientID)
+	if c.clientSecret != "" {
+		f.Set("client_secret", c.clientSecret)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.revokeURL, strings.NewReader(f.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	// RFC 7009: the endpoint returns 200 for a successful (or already-invalid)
+	// revocation. Treat anything else as an error for the best-effort caller.
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("revoke endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
 }
 
 func (c *oauthClient) refresh(ctx context.Context, refreshToken string) (*tokenResponse, error) {
