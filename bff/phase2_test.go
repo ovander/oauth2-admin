@@ -38,10 +38,35 @@ func (c *capture) get() (string, string, int) {
 	return c.auth, c.cookie, c.hits
 }
 
+// revokeCapture records the token/token_type_hint of each /oauth/revoke call the
+// BFF makes at the issuer, so tests can assert logout revocation.
+type revokeCapture struct {
+	mu      sync.Mutex
+	tokens  []string
+	hints   []string
+	clients []string
+}
+
+func (rc *revokeCapture) record(token, hint, client string) {
+	rc.mu.Lock()
+	rc.tokens = append(rc.tokens, token)
+	rc.hints = append(rc.hints, hint)
+	rc.clients = append(rc.clients, client)
+	rc.mu.Unlock()
+}
+
+func (rc *revokeCapture) snapshot() (tokens, hints, clients []string) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	return append([]string(nil), rc.tokens...), append([]string(nil), rc.hints...), append([]string(nil), rc.clients...)
+}
+
 // phase2Harness wires the BFF against a mock admin API and a mock Socrate token
 // endpoint. The access token is a JWT carrying sub/email/roles.
-func phase2Harness(t *testing.T) (http.Handler, *app, *capture, string, string) {
+func phase2Harness(t *testing.T) (http.Handler, *app, *capture, *revokeCapture, string, string) {
 	t.Helper()
+
+	rev := &revokeCapture{}
 
 	accessJWT := makeJWT(map[string]any{
 		"sub": "user-1", "email": "admin@example.com", "name": "Admin",
@@ -89,6 +114,12 @@ func phase2Harness(t *testing.T) (http.Handler, *app, *capture, string, string) 
 			})
 			return
 		}
+		if r.URL.Path == "/oauth/revoke" {
+			_ = r.ParseForm()
+			rev.record(r.Form.Get("token"), r.Form.Get("token_type_hint"), r.Form.Get("client_id"))
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		if r.URL.Path != "/oauth/token" {
 			http.NotFound(w, r)
 			return
@@ -123,7 +154,7 @@ func phase2Harness(t *testing.T) (http.Handler, *app, *capture, string, string) 
 		CookieSecure: false,
 	}
 	a := newApp(cfg)
-	return a.handler(), a, cap, accessJWT, elevatedJWT
+	return a.handler(), a, cap, rev, accessJWT, elevatedJWT
 }
 
 func sessionCookie(t *testing.T, rr *httptest.ResponseRecorder, name string) *http.Cookie {
@@ -138,7 +169,7 @@ func sessionCookie(t *testing.T, rr *httptest.ResponseRecorder, name string) *ht
 }
 
 func TestPhase2FullFlow(t *testing.T) {
-	h, a, cap, accessJWT, _ := phase2Harness(t)
+	h, a, cap, rev, accessJWT, _ := phase2Harness(t)
 	name := a.cookieName()
 
 	// 1. /bff/login → 302 to the AS authorize endpoint with PKCE params.
@@ -236,6 +267,9 @@ func TestPhase2FullFlow(t *testing.T) {
 	if cleared.MaxAge >= 0 {
 		t.Errorf("logout cookie MaxAge = %d, want < 0", cleared.MaxAge)
 	}
+	if tokens, _, _ := rev.snapshot(); len(tokens) == 0 {
+		t.Error("logout did not revoke any tokens at the issuer")
+	}
 	rr = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/bff/session", nil)
 	req.AddCookie(cookie)
@@ -246,7 +280,7 @@ func TestPhase2FullFlow(t *testing.T) {
 }
 
 func TestUnknownStateRejected(t *testing.T) {
-	h, _, _, _, _ := phase2Harness(t)
+	h, _, _, _, _, _ := phase2Harness(t)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/callback?code=abc&state=forged", nil))
 	if rr.Code != http.StatusBadRequest {
@@ -254,23 +288,82 @@ func TestUnknownStateRejected(t *testing.T) {
 	}
 }
 
-func TestDualModePassThrough(t *testing.T) {
-	h, _, cap, _, _ := phase2Harness(t)
-	// No session cookie → the browser's own bearer is forwarded unchanged.
+func TestProxyFailClosed(t *testing.T) {
+	h, _, cap, _, _, _ := phase2Harness(t)
+	// No session cookie, auth enabled → fail-closed: 401 and upstream NOT reached,
+	// even when the browser supplies its own bearer.
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+	req.Header.Set("Authorization", "Bearer browser-token")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rr.Code)
+	}
+	if _, _, hits := cap.get(); hits != 0 {
+		t.Errorf("upstream reached %d times, want 0 (fail-closed)", hits)
+	}
+}
+
+func TestProxyPassThroughWhenFlagSet(t *testing.T) {
+	h, a, cap, _, _, _ := phase2Harness(t)
+	// Opt-in legacy migration mode: the browser's own bearer is forwarded unchanged.
+	a.cfg.AllowPassthrough = true
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
 	req.Header.Set("Authorization", "Bearer browser-token")
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d", rr.Code)
+		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	if gotAuth, _, _ := cap.get(); gotAuth != "Bearer browser-token" {
 		t.Errorf("upstream auth = %q, want pass-through", gotAuth)
 	}
 }
 
+func TestLogoutRevokesTokens(t *testing.T) {
+	h, a, _, rev, _, _ := phase2Harness(t)
+	// Seed a logged-in session with known tokens.
+	sid, _ := randomToken(16)
+	now := time.Now()
+	a.store.Put(&Session{
+		ID: sid, AccessToken: "access-1", RefreshToken: "refresh-1",
+		AccessExpiry: now.Add(5 * time.Minute), CSRF: "c", Created: now, LastSeen: now,
+		User: UserInfo{Sub: "user-1"},
+	})
+	cookie := &http.Cookie{Name: a.cookieName(), Value: sid}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/bff/logout", nil)
+	req.AddCookie(cookie)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("logout = %d, want 204", rr.Code)
+	}
+
+	tokens, hints, clients := rev.snapshot()
+	if len(tokens) != 2 {
+		t.Fatalf("revoked %d tokens, want 2 (refresh + access): %v", len(tokens), tokens)
+	}
+	// Refresh token is revoked first, with client auth.
+	if tokens[0] != "refresh-1" || hints[0] != "refresh_token" {
+		t.Errorf("first revoke = (%q,%q), want (refresh-1, refresh_token)", tokens[0], hints[0])
+	}
+	if tokens[1] != "access-1" || hints[1] != "access_token" {
+		t.Errorf("second revoke = (%q,%q), want (access-1, access_token)", tokens[1], hints[1])
+	}
+	for _, c := range clients {
+		if c != "admin-console" {
+			t.Errorf("revoke client_id = %q, want admin-console", c)
+		}
+	}
+	// Local session is gone regardless.
+	if _, ok := a.store.Get(sid); ok {
+		t.Error("session still present after logout")
+	}
+}
+
 func TestProactiveRefresh(t *testing.T) {
-	h, a, cap, _, _ := phase2Harness(t)
+	h, a, cap, _, _, _ := phase2Harness(t)
 	// Inject a session whose access token is within 30s of expiry.
 	sid, _ := randomToken(16)
 	now := time.Now()
@@ -291,7 +384,7 @@ func TestProactiveRefresh(t *testing.T) {
 }
 
 func TestElevation(t *testing.T) {
-	h, a, cap, accessJWT, elevatedJWT := phase2Harness(t)
+	h, a, cap, _, accessJWT, elevatedJWT := phase2Harness(t)
 	// Seed a logged-in session with a known CSRF token.
 	sid, _ := randomToken(16)
 	now := time.Now()
@@ -342,7 +435,7 @@ func TestElevation(t *testing.T) {
 }
 
 func TestIssuerProfileProxy(t *testing.T) {
-	h, a, _, accessJWT, _ := phase2Harness(t)
+	h, a, _, _, accessJWT, _ := phase2Harness(t)
 	// Seed a logged-in session with a known CSRF token.
 	sid, _ := randomToken(16)
 	now := time.Now()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -216,10 +217,31 @@ func (a *app) handleSession(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if s, ok := a.sessionFromRequest(r); ok {
+		a.revokeSessionTokens(r.Context(), s)
 		a.store.Delete(s.ID)
 	}
 	a.clearSessionCookie(w)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// revokeSessionTokens best-effort revokes the session's tokens at the issuer so
+// they cannot be replayed after logout. Failures are logged and ignored — the
+// local session is always cleared by the caller regardless.
+func (a *app) revokeSessionTokens(ctx context.Context, s *Session) {
+	s.mu.Lock()
+	refresh, access := s.RefreshToken, s.AccessToken
+	s.mu.Unlock()
+
+	if refresh != "" {
+		if err := a.oauth.revoke(ctx, refresh, "refresh_token"); err != nil {
+			log.Printf("logout: revoke refresh token failed: %v", err)
+		}
+	}
+	if access != "" {
+		if err := a.oauth.revoke(ctx, access, "access_token"); err != nil {
+			log.Printf("logout: revoke access token failed: %v", err)
+		}
+	}
 }
 
 func (a *app) handleAdminProxy(w http.ResponseWriter, r *http.Request) {
@@ -236,8 +258,12 @@ func (a *app) handleIssuerProxy(w http.ResponseWriter, r *http.Request) {
 // proxyWithSession injects the session's bearer onto the request and forwards it
 // to the upstream, stripping the session cookie so it never leaks. State-changing
 // methods must carry a matching CSRF token (defense in depth on top of
-// SameSite=Strict). When there is no session it falls back to a pass-through so
-// the BFF can deploy before the SPA switches to cookies (dual mode).
+// SameSite=Strict).
+//
+// The proxy is fail-closed: when auth is enabled (store != nil) and there is no
+// valid session, it responds 401 rather than forwarding the request with a
+// browser-supplied Authorization header and no CSRF check. The legacy dual-mode
+// pass-through is only restored when BFF_ALLOW_PASSTHROUGH is explicitly set.
 func (a *app) proxyWithSession(w http.ResponseWriter, r *http.Request, proxy *httputil.ReverseProxy) {
 	// Phase 1 (no sessions): pure pass-through.
 	if a.store == nil {
@@ -247,7 +273,12 @@ func (a *app) proxyWithSession(w http.ResponseWriter, r *http.Request, proxy *ht
 
 	s, ok := a.sessionFromRequest(r)
 	if !ok {
-		proxy.ServeHTTP(w, r)
+		if a.cfg.AllowPassthrough {
+			// Legacy migration mode: forward with the browser's own credentials.
+			proxy.ServeHTTP(w, r)
+			return
+		}
+		writeUnauthorized(w)
 		return
 	}
 
@@ -270,9 +301,17 @@ func (a *app) proxyWithSession(w http.ResponseWriter, r *http.Request, proxy *ht
 	}
 	a.touch(s)
 
+	r.Header.Del("Authorization") // drop any client-supplied bearer before injecting ours
 	r.Header.Set("Authorization", "Bearer "+access)
 	r.Header.Del("Cookie") // never leak the session cookie to the upstream
 	proxy.ServeHTTP(w, r)
+}
+
+// writeUnauthorized emits a JSON 401 for the fail-closed proxy path.
+func writeUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 }
 
 // ── Session helpers ───────────────────────────────────────────────────────────
