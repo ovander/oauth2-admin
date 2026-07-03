@@ -129,8 +129,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
-          cache: false   # BFF has no external module deps (no go.sum) — nothing to cache
+          go-version: '1.25'
+          cache-dependency-path: bff/go.sum
 
       - name: Vet + race-enabled tests
         run: go vet ./... && go test -race ./...

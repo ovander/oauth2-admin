@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/ovander/backendkit/socrate"
 )
 
 // handleElevate performs server-side step-up (re-authentication) for sensitive
@@ -27,17 +28,14 @@ func (a *app) handleElevate(w http.ResponseWriter, r *http.Request) {
 	if a.rateLimited(w, r, a.elevateLimiter) {
 		return
 	}
-	s, ok := a.sessionFromRequest(r)
+	s, ok := a.gateway.SessionFromRequest(r)
 	if !ok {
 		http.Error(w, "no session", http.StatusUnauthorized)
 		return
 	}
 
 	// CSRF: double-submit, constant-time — same defense as the admin proxy.
-	s.mu.Lock()
-	want := s.CSRF
-	s.mu.Unlock()
-	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(want)) != 1 {
+	if !s.MatchCSRF(r.Header.Get("X-CSRF-Token")) {
 		http.Error(w, "missing or invalid CSRF token", http.StatusForbidden)
 		return
 	}
@@ -52,10 +50,10 @@ func (a *app) handleElevate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use a fresh (proactively refreshed) bearer for the upstream elevate call.
-	access, err := a.ensureFresh(r.Context(), s)
+	access, err := a.gateway.EnsureFresh(r.Context(), s)
 	if err != nil {
-		a.store.Delete(s.ID)
-		a.clearSessionCookie(w)
+		a.store.Delete(s.ID())
+		a.cookie.ClearSession(w)
 		http.Error(w, "session expired", http.StatusUnauthorized)
 		return
 	}
@@ -76,14 +74,13 @@ func (a *app) handleElevate(w http.ResponseWriter, r *http.Request) {
 	// Absorb the elevated access token into the session. Its lifetime comes from
 	// the token's own `exp` claim; the refresh token is unchanged, so the session
 	// naturally drops back to the non-elevated level once it expires.
-	s.mu.Lock()
-	s.AccessToken = elevated
+	expiresIn := 0
 	if claims := jwtClaims(elevated); claims != nil {
 		if exp, ok := claims["exp"].(float64); ok {
-			s.AccessExpiry = time.Unix(int64(exp), 0)
+			expiresIn = int(time.Until(time.Unix(int64(exp), 0)).Seconds())
 		}
 	}
-	s.mu.Unlock()
+	s.SetTokens(&socrate.TokenSet{AccessToken: elevated, ExpiresIn: expiresIn}, time.Now())
 	a.store.Put(s)
 
 	w.WriteHeader(http.StatusNoContent)

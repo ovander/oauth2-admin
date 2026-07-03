@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -14,36 +12,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ovander/backendkit/bff"
+	"github.com/ovander/backendkit/socrate"
 )
-
-// randomToken returns nbytes of crypto-random data as an unpadded base64url
-// string (used for code_verifier, state, session id and CSRF token).
-func randomToken(nbytes int) (string, error) {
-	b := make([]byte, nbytes)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-// pkceChallenge is the S256 code_challenge for a verifier (RFC 7636).
-func pkceChallenge(verifier string) string {
-	sum := sha256.Sum256([]byte(verifier))
-	return base64.RawURLEncoding.EncodeToString(sum[:])
-}
-
-// sanitizeReturnTo accepts only a same-site path (single leading slash) and
-// rejects protocol-relative ("//"), backslash, and absolute URLs — preventing
-// open redirects. Anything invalid falls back to "/".
-func sanitizeReturnTo(raw string) string {
-	if raw == "" || !strings.HasPrefix(raw, "/") {
-		return "/"
-	}
-	if strings.HasPrefix(raw, "//") || strings.HasPrefix(raw, "/\\") {
-		return "/"
-	}
-	return raw
-}
 
 // ── Pending logins (PKCE state) ───────────────────────────────────────────────
 
@@ -216,6 +188,26 @@ func (c *oauthClient) refresh(ctx context.Context, refreshToken string) (*tokenR
 	return c.postForm(ctx, f)
 }
 
+// tokenRefresherAdapter adapts oauthClient.refresh to bff.TokenRefresher, so
+// bff.Gateway can proactively refresh a session's access token without this
+// package re-implementing that logic.
+type tokenRefresherAdapter struct{ c *oauthClient }
+
+func (a tokenRefresherAdapter) RefreshToken(ctx context.Context, refreshToken string) (*socrate.TokenSet, error) {
+	tr, err := a.c.refresh(ctx, refreshToken)
+	if err != nil {
+		return nil, err
+	}
+	return &socrate.TokenSet{
+		AccessToken:  tr.AccessToken,
+		RefreshToken: tr.RefreshToken,
+		IDToken:      tr.IDToken,
+		ExpiresIn:    tr.ExpiresIn,
+		TokenType:    tr.TokenType,
+		Scope:        tr.Scope,
+	}, nil
+}
+
 // ── Identity derivation ───────────────────────────────────────────────────────
 
 // jwtClaims base64url-decodes the JWT payload segment. The BFF does NOT verify
@@ -241,8 +233,8 @@ func jwtClaims(token string) map[string]any {
 // deriveUser builds the UserInfo from the token response + access-token claims.
 // Roles are the union of: token-response `roles`, `app_roles[clientID]`, and the
 // JWT `roles` claim.
-func deriveUser(clientID string, tr *tokenResponse, claims map[string]any) UserInfo {
-	u := UserInfo{
+func deriveUser(clientID string, tr *tokenResponse, claims map[string]any) bff.UserInfo {
+	u := bff.UserInfo{
 		Sub:   claimString(claims, "sub"),
 		Email: claimString(claims, "email"),
 		Name:  firstNonEmpty(claimString(claims, "name"), claimString(claims, "preferred_username")),
