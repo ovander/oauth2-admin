@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"time"
+
+	"github.com/ovander/backendkit/bff"
+	"github.com/ovander/backendkit/socrate"
 )
 
 // app holds the BFF dependencies. In Phase 1 (store == nil) it is a pure
@@ -18,7 +20,9 @@ type app struct {
 	adminProxy *httputil.ReverseProxy
 
 	// Phase 2 (nil in Phase 1)
-	store       SessionStore
+	store       bff.SessionStore
+	cookie      bff.CookieConfig
+	gateway     *bff.Gateway
 	logins      *loginStore
 	oauth       *oauthClient
 	issuerProxy *httputil.ReverseProxy // authenticated issuer self-service (e.g. /api/profile)
@@ -28,14 +32,22 @@ type app struct {
 }
 
 func newApp(cfg *Config) *app {
-	a := &app{cfg: cfg, adminProxy: newReverseProxy(cfg.AdminUpstream)}
+	a := &app{cfg: cfg, adminProxy: bff.NewSingleHostProxy(cfg.AdminUpstream)}
 	if cfg.Phase2Enabled() {
-		a.store = newMemStore(cfg.SessionIdle, cfg.SessionAbsolute)
+		a.store = bff.NewMemoryStore(cfg.SessionIdle, cfg.SessionAbsolute)
+		a.cookie = bff.CookieConfig{Name: "admin_session", Secure: cfg.CookieSecure, MaxAge: int(cfg.SessionAbsolute.Seconds())}
 		a.logins = newLoginStore(10 * time.Minute)
 		a.oauth = newOAuthClient(cfg.OAuthUpstream, cfg.ClientID, cfg.ClientSecret)
-		a.issuerProxy = newReverseProxy(cfg.OAuthUpstream)
+		a.issuerProxy = bff.NewSingleHostProxy(cfg.OAuthUpstream)
 		a.loginLimiter = newRateLimiter(cfg.LoginRate, rateWindow)
 		a.elevateLimiter = newRateLimiter(cfg.ElevateRate, rateWindow)
+		a.gateway = &bff.Gateway{
+			Store:            a.store,
+			Cookie:           a.cookie,
+			Refresher:        tokenRefresherAdapter{a.oauth},
+			AuthEnabled:      true, // Phase 2 is only constructed when enabled
+			AllowPassthrough: cfg.AllowPassthrough,
+		}
 	}
 	return a
 }
@@ -56,11 +68,14 @@ func (a *app) handler() http.Handler {
 		// Authenticated issuer self-service, allowlisted one route at a time so
 		// the BFF never becomes an open proxy to the issuer. Profile read/update
 		// live on the issuer (:8080), not the admin API.
-		mux.HandleFunc("/api/profile", a.handleIssuerProxy)
-	}
+		mux.HandleFunc("/api/profile", a.gateway.ProxyWithSession(a.issuerProxy))
 
-	// Admin API: session→token injection in Phase 2, pass-through otherwise.
-	mux.HandleFunc("/api/admin/", a.handleAdminProxy)
+		// Admin API: session→token injection via the shared gateway.
+		mux.HandleFunc("/api/admin/", a.gateway.ProxyWithSession(a.adminProxy))
+	} else {
+		// Phase 1 (no sessions): pure pass-through.
+		mux.Handle("/api/admin/", a.adminProxy)
+	}
 
 	// Allowlist: everything else is 404 — never an open proxy.
 	mux.HandleFunc("/", http.NotFound)
@@ -91,44 +106,9 @@ func (a *app) startBackground(ctx context.Context) {
 
 // ── Cookie helpers ────────────────────────────────────────────────────────────
 
-func (a *app) cookieName() string {
-	if a.cfg.CookieSecure {
-		return "__Host-admin_session"
-	}
-	return "admin_session"
-}
-
-func (a *app) setSessionCookie(w http.ResponseWriter, id string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     a.cookieName(),
-		Value:    id,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   a.cfg.CookieSecure,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(a.cfg.SessionAbsolute.Seconds()),
-	})
-}
-
-func (a *app) clearSessionCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     a.cookieName(),
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   a.cfg.CookieSecure,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   -1,
-	})
-}
-
-func (a *app) sessionFromRequest(r *http.Request) (*Session, bool) {
-	c, err := r.Cookie(a.cookieName())
-	if err != nil || c.Value == "" {
-		return nil, false
-	}
-	return a.store.Get(c.Value)
-}
+// cookieName returns the on-the-wire session cookie name (with the __Host-
+// prefix applied automatically when CookieSecure is set).
+func (a *app) cookieName() string { return a.cookie.CookieName() }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
@@ -136,18 +116,10 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if a.rateLimited(w, r, a.loginLimiter) {
 		return
 	}
-	returnTo := sanitizeReturnTo(r.URL.Query().Get("return_to"))
-	verifier, err := randomToken(32)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	state, err := randomToken(32)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	a.logins.put(state, pendingLogin{verifier: verifier, returnTo: returnTo, created: time.Now()})
+	returnTo := bff.SanitizeReturnTo(r.URL.Query().Get("return_to"))
+	pkce := bff.NewPKCE()
+	state := bff.RandomToken(32)
+	a.logins.put(state, pendingLogin{verifier: pkce.Verifier, returnTo: returnTo, created: time.Now()})
 
 	q := url.Values{}
 	q.Set("response_type", "code")
@@ -155,7 +127,7 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 	q.Set("redirect_uri", a.redirectURI())
 	q.Set("scope", a.cfg.Scopes)
 	q.Set("state", state)
-	q.Set("code_challenge", pkceChallenge(verifier))
+	q.Set("code_challenge", pkce.Challenge)
 	q.Set("code_challenge_method", "S256")
 	http.Redirect(w, r, a.cfg.OAuthPublicURL+"/oauth/authorize?"+q.Encode(), http.StatusFound)
 }
@@ -184,63 +156,49 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sid, err := randomToken(32)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	csrf, err := randomToken(32)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
+	sid := bff.RandomToken(32)
+	csrf := bff.RandomToken(32)
 	now := time.Now()
-	s := &Session{
-		ID:           sid,
+	ts := &socrate.TokenSet{
 		AccessToken:  tr.AccessToken,
 		RefreshToken: tr.RefreshToken,
 		IDToken:      tr.IDToken,
-		AccessExpiry: now.Add(time.Duration(tr.ExpiresIn) * time.Second),
-		CSRF:         csrf,
-		Created:      now,
-		LastSeen:     now,
-		User:         deriveUser(a.cfg.ClientID, tr, jwtClaims(tr.AccessToken)),
+		ExpiresIn:    tr.ExpiresIn,
 	}
+	user := deriveUser(a.cfg.ClientID, tr, jwtClaims(tr.AccessToken))
+	s := bff.NewSession(sid, csrf, ts, user, now)
 	a.store.Put(s)
-	a.setSessionCookie(w, sid)
+	a.cookie.SetSession(w, sid)
 	http.Redirect(w, r, pending.returnTo, http.StatusFound)
 }
 
 func (a *app) handleSession(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	s, ok := a.sessionFromRequest(r)
+	s, ok := a.gateway.SessionFromRequest(r)
 	if !ok {
 		_ = json.NewEncoder(w).Encode(map[string]any{"authenticated": false})
 		return
 	}
-	a.touch(s)
-	s.mu.Lock()
-	user, csrf := s.User, s.CSRF
-	s.mu.Unlock()
+	s.Touch(time.Now())
+	a.store.Put(s)
+	user, csrf := s.User(), s.CSRF()
 	_ = json.NewEncoder(w).Encode(map[string]any{"authenticated": true, "user": user, "csrf": csrf})
 }
 
 func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if s, ok := a.sessionFromRequest(r); ok {
+	if s, ok := a.gateway.SessionFromRequest(r); ok {
 		a.revokeSessionTokens(r.Context(), s)
-		a.store.Delete(s.ID)
+		a.store.Delete(s.ID())
 	}
-	a.clearSessionCookie(w)
+	a.cookie.ClearSession(w)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // revokeSessionTokens best-effort revokes the session's tokens at the issuer so
 // they cannot be replayed after logout. Failures are logged and ignored — the
 // local session is always cleared by the caller regardless.
-func (a *app) revokeSessionTokens(ctx context.Context, s *Session) {
-	s.mu.Lock()
-	refresh, access := s.RefreshToken, s.AccessToken
-	s.mu.Unlock()
+func (a *app) revokeSessionTokens(ctx context.Context, s *bff.Session) {
+	refresh, access := s.RefreshToken(), s.AccessToken()
 
 	if refresh != "" {
 		if err := a.oauth.revoke(ctx, refresh, "refresh_token"); err != nil {
@@ -254,117 +212,6 @@ func (a *app) revokeSessionTokens(ctx context.Context, s *Session) {
 	}
 }
 
-func (a *app) handleAdminProxy(w http.ResponseWriter, r *http.Request) {
-	a.proxyWithSession(w, r, a.adminProxy)
-}
-
-// handleIssuerProxy serves allowlisted, authenticated issuer self-service routes
-// (e.g. /api/profile) through the same session→token injection as the admin
-// proxy, so profile updates are fully cookie-only — no bearer in the browser.
-func (a *app) handleIssuerProxy(w http.ResponseWriter, r *http.Request) {
-	a.proxyWithSession(w, r, a.issuerProxy)
-}
-
-// proxyWithSession injects the session's bearer onto the request and forwards it
-// to the upstream, stripping the session cookie so it never leaks. State-changing
-// methods must carry a matching CSRF token (defense in depth on top of
-// SameSite=Strict).
-//
-// The proxy is fail-closed: when auth is enabled (store != nil) and there is no
-// valid session, it responds 401 rather than forwarding the request with a
-// browser-supplied Authorization header and no CSRF check. The legacy dual-mode
-// pass-through is only restored when BFF_ALLOW_PASSTHROUGH is explicitly set.
-func (a *app) proxyWithSession(w http.ResponseWriter, r *http.Request, proxy *httputil.ReverseProxy) {
-	// Phase 1 (no sessions): pure pass-through.
-	if a.store == nil {
-		proxy.ServeHTTP(w, r)
-		return
-	}
-
-	s, ok := a.sessionFromRequest(r)
-	if !ok {
-		if a.cfg.AllowPassthrough {
-			// Legacy migration mode: forward with the browser's own credentials.
-			proxy.ServeHTTP(w, r)
-			return
-		}
-		writeUnauthorized(w)
-		return
-	}
-
-	if isUnsafeMethod(r.Method) {
-		s.mu.Lock()
-		want := s.CSRF
-		s.mu.Unlock()
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(want)) != 1 {
-			http.Error(w, "missing or invalid CSRF token", http.StatusForbidden)
-			return
-		}
-	}
-
-	access, err := a.ensureFresh(r.Context(), s)
-	if err != nil {
-		a.store.Delete(s.ID)
-		a.clearSessionCookie(w)
-		http.Error(w, "session expired", http.StatusUnauthorized)
-		return
-	}
-	a.touch(s)
-
-	r.Header.Del("Authorization") // drop any client-supplied bearer before injecting ours
-	r.Header.Set("Authorization", "Bearer "+access)
-	r.Header.Del("Cookie") // never leak the session cookie to the upstream
-	proxy.ServeHTTP(w, r)
-}
-
-// writeUnauthorized emits a JSON 401 for the fail-closed proxy path.
-func writeUnauthorized(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusUnauthorized)
-	_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
-}
-
 // ── Session helpers ───────────────────────────────────────────────────────────
 
 func (a *app) redirectURI() string { return a.cfg.PublicOrigin + "/bff/callback" }
-
-// touch slides the idle window.
-func (a *app) touch(s *Session) {
-	s.mu.Lock()
-	s.LastSeen = time.Now()
-	s.mu.Unlock()
-	a.store.Put(s)
-}
-
-// ensureFresh returns the session's access token, proactively refreshing it when
-// it is within 30s of expiry. The per-session lock serialises concurrent
-// refreshes so the rotating refresh token is used once.
-func (a *app) ensureFresh(ctx context.Context, s *Session) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if time.Now().Add(30 * time.Second).Before(s.AccessExpiry) {
-		return s.AccessToken, nil
-	}
-	tr, err := a.oauth.refresh(ctx, s.RefreshToken)
-	if err != nil {
-		return "", err
-	}
-	s.AccessToken = tr.AccessToken
-	if tr.RefreshToken != "" {
-		s.RefreshToken = tr.RefreshToken
-	}
-	if tr.IDToken != "" {
-		s.IDToken = tr.IDToken
-	}
-	s.AccessExpiry = time.Now().Add(time.Duration(tr.ExpiresIn) * time.Second)
-	return s.AccessToken, nil
-}
-
-func isUnsafeMethod(method string) bool {
-	switch method {
-	case http.MethodGet, http.MethodHead, http.MethodOptions:
-		return false
-	default:
-		return true
-	}
-}

@@ -11,6 +11,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ovander/backendkit/bff"
+	"github.com/ovander/backendkit/socrate"
 )
 
 // makeJWT builds a header.payload.sig token; the BFF only base64url-decodes the
@@ -207,9 +210,9 @@ func TestPhase2FullFlow(t *testing.T) {
 	req.AddCookie(cookie)
 	h.ServeHTTP(rr, req)
 	var sess struct {
-		Authenticated bool     `json:"authenticated"`
-		User          UserInfo `json:"user"`
-		CSRF          string   `json:"csrf"`
+		Authenticated bool         `json:"authenticated"`
+		User          bff.UserInfo `json:"user"`
+		CSRF          string       `json:"csrf"`
 	}
 	_ = json.Unmarshal(rr.Body.Bytes(), &sess)
 	if !sess.Authenticated || sess.User.Sub != "user-1" || sess.User.Email != "admin@example.com" {
@@ -307,7 +310,7 @@ func TestProxyFailClosed(t *testing.T) {
 func TestProxyPassThroughWhenFlagSet(t *testing.T) {
 	h, a, cap, _, _, _ := phase2Harness(t)
 	// Opt-in legacy migration mode: the browser's own bearer is forwarded unchanged.
-	a.cfg.AllowPassthrough = true
+	a.gateway.AllowPassthrough = true
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
 	req.Header.Set("Authorization", "Bearer browser-token")
 	rr := httptest.NewRecorder()
@@ -323,13 +326,10 @@ func TestProxyPassThroughWhenFlagSet(t *testing.T) {
 func TestLogoutRevokesTokens(t *testing.T) {
 	h, a, _, rev, _, _ := phase2Harness(t)
 	// Seed a logged-in session with known tokens.
-	sid, _ := randomToken(16)
+	sid := bff.RandomToken(16)
 	now := time.Now()
-	a.store.Put(&Session{
-		ID: sid, AccessToken: "access-1", RefreshToken: "refresh-1",
-		AccessExpiry: now.Add(5 * time.Minute), CSRF: "c", Created: now, LastSeen: now,
-		User: UserInfo{Sub: "user-1"},
-	})
+	ts := &socrate.TokenSet{AccessToken: "access-1", RefreshToken: "refresh-1", ExpiresIn: 300}
+	a.store.Put(bff.NewSession(sid, "c", ts, bff.UserInfo{Sub: "user-1"}, now))
 	cookie := &http.Cookie{Name: a.cookieName(), Value: sid}
 
 	rr := httptest.NewRecorder()
@@ -365,13 +365,10 @@ func TestLogoutRevokesTokens(t *testing.T) {
 func TestProactiveRefresh(t *testing.T) {
 	h, a, cap, _, _, _ := phase2Harness(t)
 	// Inject a session whose access token is within 30s of expiry.
-	sid, _ := randomToken(16)
+	sid := bff.RandomToken(16)
 	now := time.Now()
-	a.store.Put(&Session{
-		ID: sid, AccessToken: "stale", RefreshToken: "refresh-1",
-		AccessExpiry: now.Add(5 * time.Second), CSRF: "c", Created: now, LastSeen: now,
-		User: UserInfo{Sub: "user-1"},
-	})
+	ts := &socrate.TokenSet{AccessToken: "stale", RefreshToken: "refresh-1", ExpiresIn: 5}
+	a.store.Put(bff.NewSession(sid, "c", ts, bff.UserInfo{Sub: "user-1"}, now))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/x", nil)
 	req.AddCookie(&http.Cookie{Name: a.cookieName(), Value: sid})
@@ -386,13 +383,10 @@ func TestProactiveRefresh(t *testing.T) {
 func TestElevation(t *testing.T) {
 	h, a, cap, _, accessJWT, elevatedJWT := phase2Harness(t)
 	// Seed a logged-in session with a known CSRF token.
-	sid, _ := randomToken(16)
+	sid := bff.RandomToken(16)
 	now := time.Now()
-	a.store.Put(&Session{
-		ID: sid, AccessToken: accessJWT, RefreshToken: "refresh-1",
-		AccessExpiry: now.Add(5 * time.Minute), CSRF: "csrf-1", Created: now, LastSeen: now,
-		User: UserInfo{Sub: "user-1"},
-	})
+	ts := &socrate.TokenSet{AccessToken: accessJWT, RefreshToken: "refresh-1", ExpiresIn: 300}
+	a.store.Put(bff.NewSession(sid, "csrf-1", ts, bff.UserInfo{Sub: "user-1"}, now))
 	cookie := &http.Cookie{Name: a.cookieName(), Value: sid}
 
 	// Missing CSRF → 403, no upstream call.
@@ -437,13 +431,10 @@ func TestElevation(t *testing.T) {
 func TestIssuerProfileProxy(t *testing.T) {
 	h, a, _, _, accessJWT, _ := phase2Harness(t)
 	// Seed a logged-in session with a known CSRF token.
-	sid, _ := randomToken(16)
+	sid := bff.RandomToken(16)
 	now := time.Now()
-	a.store.Put(&Session{
-		ID: sid, AccessToken: accessJWT, RefreshToken: "refresh-1",
-		AccessExpiry: now.Add(5 * time.Minute), CSRF: "csrf-1", Created: now, LastSeen: now,
-		User: UserInfo{Sub: "user-1"},
-	})
+	ts := &socrate.TokenSet{AccessToken: accessJWT, RefreshToken: "refresh-1", ExpiresIn: 300}
+	a.store.Put(bff.NewSession(sid, "csrf-1", ts, bff.UserInfo{Sub: "user-1"}, now))
 	cookie := &http.Cookie{Name: a.cookieName(), Value: sid}
 
 	// GET /api/profile → injected bearer reaches the issuer; cookie stripped.

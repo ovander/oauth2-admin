@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/ovander/backendkit/bff"
 )
 
 func testConfig(t *testing.T, upstream string) *Config {
@@ -100,7 +102,7 @@ func TestNonAllowlistedPathsReturn404(t *testing.T) {
 
 func TestAdminProxyIsSSEAware(t *testing.T) {
 	u, _ := url.Parse("http://127.0.0.1:8081")
-	if got := newReverseProxy(u).FlushInterval; got != -1 {
+	if got := bff.NewSingleHostProxy(u).FlushInterval; got != -1 {
 		t.Errorf("FlushInterval = %v, want -1 (immediate flush for SSE)", got)
 	}
 }
