@@ -14,13 +14,15 @@ or a poisoned SPA dependency — neither can read a replayable admin token.
 
 | Phase | Gate | Behavior |
 |---|---|---|
-| **1** (this build) | always | Allowlisted, SSE-aware reverse proxy for `/api/admin/*` → admin API; `GET /bff/healthz`; everything else `404`. The browser's `Authorization` header is forwarded **unchanged** — a no-behavior-change skeleton that can deploy ahead of the SPA migration. |
-| **2** | `BFF_CLIENT_ID` set | Authorization-Code + PKCE login (`/bff/login`, `/bff/callback`), server-side sessions, the session cookie, `/bff/session` + `/bff/logout`, and session→token injection on the proxy (with dual-mode pass-through when there is no session). |
+| **1** (migration only) | `BFF_CLIENT_ID` unset **and** `BFF_PHASE1_PASSTHROUGH=true` | Allowlisted, SSE-aware reverse proxy for `/api/admin/*` → admin API; `GET /bff/healthz`; everything else `404`. The browser's `Authorization` header is forwarded **unchanged** and there is no CSRF check — an unauthenticated pass-through to the admin API. The BFF **refuses to start** in this mode without the explicit opt-in and logs a WARNING when it does. |
+| **2** (default) | `BFF_CLIENT_ID` set | Authorization-Code + PKCE login (`/bff/login`, `/bff/callback`), server-side sessions, the session cookie, `/bff/session` + `/bff/logout`, and session→token injection on the proxy. Fail-closed: no session ⇒ `401` (unless `BFF_ALLOW_PASSTHROUGH=true`, also a logged migration flag). |
 
 ## Configuration
 
-See [`.env.example`](./.env.example). Phase 1 only needs `BFF_LISTEN_ADDR` and
-`BFF_ADMIN_UPSTREAM`. Empty `BFF_CLIENT_ID` ⇒ Phase 1.
+See [`.env.example`](./.env.example). Phase 2 needs `BFF_CLIENT_ID` **and**
+`BFF_CLIENT_SECRET` plus the public URLs. `LoadConfig` also rejects
+`BFF_COOKIE_SECURE=false` on an https origin and non-positive session
+lifetimes.
 
 ## Security model
 
@@ -37,8 +39,8 @@ go test -race ./...   # tests against an httptest mock — no external deps
 go vet ./... && gofmt -l .
 go build -o socrate-admin-bff .
 
-# run (Phase 1)
-BFF_LISTEN_ADDR=127.0.0.1:8091 BFF_ADMIN_UPSTREAM=http://127.0.0.1:8081 ./socrate-admin-bff
+# run (Phase 1 pass-through, local only — requires the explicit opt-in)
+BFF_PHASE1_PASSTHROUGH=true BFF_LISTEN_ADDR=127.0.0.1:8091 BFF_ADMIN_UPSTREAM=http://127.0.0.1:8081 ./socrate-admin-bff
 ```
 
 Container: `docker build -t socrate-admin-bff bff/` (distroless, non-root).

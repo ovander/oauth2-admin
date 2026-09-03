@@ -25,6 +25,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
+	for _, w := range cfg.Warnings() {
+		log.Printf("WARNING: %s", w)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
