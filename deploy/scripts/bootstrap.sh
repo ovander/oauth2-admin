@@ -18,7 +18,8 @@ systemctl daemon-reload
 echo "==> env file"
 if [ ! -f /etc/socrate/admin-bff.env ]; then
 	install -m0640 -o root -g socrate "$DEPLOY_DIR/env/admin-bff.env.example" /etc/socrate/admin-bff.env
-	echo "    seeded /etc/socrate/admin-bff.env (edit before enabling Phase 2)"
+	echo "    seeded /etc/socrate/admin-bff.env — set BFF_CLIENT_SECRET (and check the other Phase 2 values) before starting;"
+	echo "    the BFF refuses to run without server-side sessions unless BFF_PHASE1_PASSTHROUGH=true is set deliberately"
 else
 	echo "    /etc/socrate/admin-bff.env exists — left unchanged"
 fi
