@@ -24,6 +24,7 @@ type app struct {
 	cookie      bff.CookieConfig
 	gateway     *bff.Gateway
 	logins      *loginStore
+	login       bff.LoginBinding // ties /bff/login to the browser that must finish it at /bff/callback
 	oauth       *oauthClient
 	issuerProxy *httputil.ReverseProxy // authenticated issuer self-service (e.g. /api/profile)
 
@@ -37,15 +38,17 @@ func newApp(cfg *Config) *app {
 		a.store = bff.NewMemoryStore(cfg.SessionIdle, cfg.SessionAbsolute)
 		a.cookie = bff.CookieConfig{Name: "admin_session", Secure: cfg.CookieSecure, MaxAge: int(cfg.SessionAbsolute.Seconds())}
 		a.logins = newLoginStore(10 * time.Minute)
+		a.login = bff.LoginBinding{Cookie: bff.CookieConfig{Name: "admin_login", Secure: cfg.CookieSecure}, TTL: 10 * time.Minute}
 		a.oauth = newOAuthClient(cfg.OAuthUpstream, cfg.ClientID, cfg.ClientSecret)
 		a.issuerProxy = bff.NewSingleHostProxy(cfg.OAuthUpstream)
 		a.loginLimiter = newRateLimiter(cfg.LoginRate, rateWindow)
 		a.elevateLimiter = newRateLimiter(cfg.ElevateRate, rateWindow)
 		a.gateway = &bff.Gateway{
-			Store:            a.store,
-			Cookie:           a.cookie,
-			Refresher:        tokenRefresherAdapter{a.oauth},
-			AuthEnabled:      true, // Phase 2 is only constructed when enabled
+			Store:     a.store,
+			Cookie:    a.cookie,
+			Refresher: tokenRefresherAdapter{a.oauth},
+			// backendkit >= v1.11.0: the gateway is fail-closed by default
+			// (DisableAuth zero value); Phase 2 is only constructed when enabled.
 			AllowPassthrough: cfg.AllowPassthrough,
 		}
 	}
@@ -119,7 +122,11 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 	returnTo := bff.SanitizeReturnTo(r.URL.Query().Get("return_to"))
 	pkce := bff.NewPKCE()
 	state := bff.RandomToken(32)
-	a.logins.put(state, pendingLogin{verifier: pkce.Verifier, returnTo: returnTo, created: time.Now()})
+	// P3-15: bind the pending login to this browser. The callback must present
+	// the nonce cookie issued here, so a captured callback URL cannot log a
+	// different browser into the attacker's session.
+	nonce := a.login.Begin(w)
+	a.logins.put(state, pendingLogin{verifier: pkce.Verifier, returnTo: returnTo, nonce: nonce, created: time.Now()})
 
 	q := url.Values{}
 	q.Set("response_type", "code")
@@ -138,10 +145,16 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "authorization failed: "+e, http.StatusBadRequest)
 		return
 	}
-	// Single-use state: take+delete is the CSRF defense for the callback.
+	// Single-use state: take+delete makes the callback single-shot …
 	pending, ok := a.logins.take(q.Get("state"))
 	if !ok {
 		http.Error(w, "invalid or expired state", http.StatusBadRequest)
+		return
+	}
+	// … and the login-binding cookie proves this is the browser that started
+	// it (P3-15). Verify clears the cookie either way.
+	if !a.login.Verify(w, r, pending.nonce) {
+		http.Error(w, "login was not started by this browser", http.StatusBadRequest)
 		return
 	}
 	code := q.Get("code")

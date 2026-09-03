@@ -22,7 +22,10 @@ import (
 type pendingLogin struct {
 	verifier string
 	returnTo string
-	created  time.Time
+	// nonce is the bff.LoginBinding value issued to the browser that started
+	// this login; the callback only completes for a browser presenting it.
+	nonce   string
+	created time.Time
 }
 
 // loginStore holds in-flight logins keyed by state. Entries are single-use
@@ -116,7 +119,19 @@ func (c *oauthClient) postForm(ctx context.Context, form url.Values) (*tokenResp
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		// Typed so bff.IsFatalRefreshError can tell a rejected grant
+		// (invalid_grant: the session is dead) from a token-endpoint outage
+		// (5xx: keep the session, answer 502).
+		var oe struct {
+			Error string `json:"error"`
+			Desc  string `json:"error_description"`
+		}
+		_ = json.Unmarshal(body, &oe)
+		err := &socrate.OAuthError{StatusCode: resp.StatusCode, Code: oe.Error, Description: oe.Desc}
+		if err.Code == "" {
+			err.Description = strings.TrimSpace(string(body))
+		}
+		return nil, err
 	}
 	var tr tokenResponse
 	if err := json.Unmarshal(body, &tr); err != nil {

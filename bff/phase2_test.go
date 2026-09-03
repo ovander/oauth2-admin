@@ -192,10 +192,17 @@ func TestPhase2FullFlow(t *testing.T) {
 		t.Fatalf("bad authorize params: %v", q)
 	}
 	state := q.Get("state")
+	// The login-binding cookie issued at /bff/login must travel to /bff/callback.
+	loginCookie := sessionCookie(t, rr, a.login.Cookie.CookieName())
+	if !loginCookie.HttpOnly || loginCookie.SameSite != http.SameSiteLaxMode || loginCookie.Value == "" {
+		t.Fatalf("login-binding cookie weak: %+v", loginCookie)
+	}
 
 	// 2. /bff/callback → exchanges code, sets session cookie, 302 to return_to.
 	rr = httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/callback?code=abc&state="+state, nil))
+	cbReq := httptest.NewRequest(http.MethodGet, "/bff/callback?code=abc&state="+state, nil)
+	cbReq.AddCookie(loginCookie)
+	h.ServeHTTP(rr, cbReq)
 	if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/dashboard" {
 		t.Fatalf("callback = %d %q, want 302 /dashboard", rr.Code, rr.Header().Get("Location"))
 	}
@@ -279,6 +286,43 @@ func TestPhase2FullFlow(t *testing.T) {
 	h.ServeHTTP(rr, req)
 	if strings.Contains(rr.Body.String(), `"authenticated":true`) {
 		t.Errorf("session still authenticated after logout: %s", rr.Body.String())
+	}
+}
+
+// P3-15: a callback URL captured from one browser must not complete the login
+// in another — the pending login is bound to the browser that started it.
+func TestCallbackRequiresLoginBindingCookie(t *testing.T) {
+	h, a, _, _, _, _ := phase2Harness(t)
+
+	start := func() (string, *http.Cookie) {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/login", nil))
+		loc, _ := url.Parse(rr.Header().Get("Location"))
+		return loc.Query().Get("state"), sessionCookie(t, rr, a.login.Cookie.CookieName())
+	}
+
+	// Browser B (no binding cookie) presents browser A's callback URL.
+	stateA, _ := start()
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/callback?code=abc&state="+stateA, nil))
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("callback without binding cookie = %d, want 400", rr.Code)
+	}
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == a.cookieName() && c.Value != "" {
+			t.Fatal("a session cookie was minted for a browser that did not start the login")
+		}
+	}
+
+	// Browser B with its OWN login in flight presents browser A's URL.
+	stateA2, _ := start()
+	_, cookieB := start()
+	rr = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/bff/callback?code=abc&state="+stateA2, nil)
+	req.AddCookie(cookieB)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("callback with another browser's binding cookie = %d, want 400", rr.Code)
 	}
 }
 
