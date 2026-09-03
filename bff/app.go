@@ -45,7 +45,8 @@ func newApp(cfg *Config) *app {
 			Store:            a.store,
 			Cookie:           a.cookie,
 			Refresher:        tokenRefresherAdapter{a.oauth},
-			AuthEnabled:      true, // Phase 2 is only constructed when enabled
+			// backendkit >= v1.11.0: the gateway is fail-closed by default
+			// (DisableAuth zero value); Phase 2 is only constructed when enabled.
 			AllowPassthrough: cfg.AllowPassthrough,
 		}
 	}
