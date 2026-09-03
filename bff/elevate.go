@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -36,7 +37,8 @@ func (a *app) handleElevate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// CSRF: double-submit, constant-time — same defense as the admin proxy.
-	if !s.MatchCSRF(r.Header.Get("X-CSRF-Token")) {
+	// P2-12: the header name comes from the shared gateway, not a local literal.
+	if !s.MatchCSRF(r.Header.Get(bff.DefaultCSRFHeader)) {
 		http.Error(w, "missing or invalid CSRF token", http.StatusForbidden)
 		return
 	}
@@ -71,26 +73,59 @@ func (a *app) handleElevate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status != http.StatusOK {
-		// Forward the upstream challenge (e.g. {"error":"mfa_required"}) verbatim.
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = w.Write(body)
+		// P3-21: forward only a 4xx challenge (e.g. {"error":"mfa_required"},
+		// invalid code) so the SPA's step-up dialog can re-prompt. Anything else
+		// is an upstream fault whose body (stack traces, proxy pages) must not
+		// reach the browser.
+		if status >= 400 && status < 500 {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(status)
+			_, _ = w.Write(body)
+			return
+		}
+		log.Printf("elevate: admin upstream returned %d", status)
+		http.Error(w, "elevation upstream error", http.StatusBadGateway)
 		return
 	}
 
 	// Absorb the elevated access token into the session. Its lifetime comes from
 	// the token's own `exp` claim; the refresh token is unchanged, so the session
 	// naturally drops back to the non-elevated level once it expires.
-	expiresIn := 0
-	if claims := jwtClaims(elevated); claims != nil {
-		if exp, ok := claims["exp"].(float64); ok {
-			expiresIn = int(time.Until(time.Unix(int64(exp), 0)).Seconds())
-		}
+	//
+	// P2-11: fail closed. A token with no parseable `exp`, or one already
+	// expired, used to be stored with ExpiresIn=0 — an access token the gateway
+	// treats as permanently stale, so the very next proxied call forces a refresh
+	// that throws the elevation away, or worse, poisons the session. Refuse it.
+	expiresIn := elevatedTokenTTL(elevated, time.Now())
+	if expiresIn <= 0 {
+		log.Printf("elevate: upstream token has no usable exp claim; not absorbing")
+		http.Error(w, "elevation upstream error", http.StatusBadGateway)
+		return
 	}
 	s.SetTokens(&socrate.TokenSet{AccessToken: elevated, ExpiresIn: expiresIn}, time.Now())
 	a.store.Put(s)
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// elevatedTokenTTL returns the remaining lifetime, in whole seconds, of the JWT
+// according to its `exp` claim, or 0 when the claim is absent, malformed or in
+// the past.
+func elevatedTokenTTL(token string, now time.Time) int {
+	claims := jwtClaims(token)
+	if claims == nil {
+		return 0
+	}
+	exp, ok := claims["exp"].(float64)
+	if !ok || exp <= 0 {
+		return 0
+	}
+	ttl := int(time.Unix(int64(exp), 0).Sub(now).Seconds())
+	if ttl < 0 {
+		return 0
+	}
+	return ttl
 }
 
 // elevate calls the admin resource server's step-up endpoint with the session

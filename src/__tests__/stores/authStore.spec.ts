@@ -38,10 +38,13 @@ vi.mock('vue-router', async (importOriginal) => {
 
 // ─── Mock the service layer so we control I/O ────────────────────────────────
 vi.mock('@/services/authService')
+// P3-22: capture the session-expired listener the store registers.
+const sessionExpiredListeners: Array<() => void> = []
 vi.mock('@/services/session', () => ({
-  fetchSession: vi.fn(),
-  bffLogout:    vi.fn(),
-  startLogin:   vi.fn(),
+  fetchSession:     vi.fn(),
+  bffLogout:        vi.fn(),
+  startLogin:       vi.fn(),
+  onSessionExpired: vi.fn((fn: () => void) => { sessionExpiredListeners.push(fn); return () => {} }),
 }))
 
 // ─── Test fixtures ────────────────────────────────────────────────────────────
@@ -225,5 +228,21 @@ describe('authStore helper actions', () => {
     store.error = 'Some error'
     store.clearError()
     expect(store.error).toBeNull()
+  })
+})
+
+// ─── P3-22: a 401 from the api interceptor must clear the cached user ─────────
+describe('authStore — session-expired signal (P3-22)', () => {
+  it('registers a listener that clears user so the router guard stops looping', () => {
+    const store = buildStore()
+    store.user = mockUser
+    expect(store.isAuthenticated).toBe(true)
+    expect(sessionExpiredListeners.length).toBeGreaterThan(0)
+
+    // What api.ts does on a 401 (notifySessionExpired) → every listener fires.
+    for (const fn of sessionExpiredListeners) fn()
+
+    expect(store.user).toBeNull()
+    expect(store.isAuthenticated).toBe(false)
   })
 })

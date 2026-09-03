@@ -19,7 +19,7 @@ import { BASE }                                   from '../msw/handlers'
 
 // ── Import the REAL api module + CSRF store (not mocked) ──────────────────────
 import api from '@/services/api'
-import { csrfStore } from '@/services/session'
+import { csrfStore, onSessionExpired } from '@/services/session'
 
 // ── Import router so we can spy on router.push ────────────────────────────────
 import router from '@/router/router'
@@ -130,6 +130,19 @@ describe('api.ts — response interceptor: 401 → Login (no client refresh)', (
     expect(csrfStore.get()).toBeNull()
     expect(pushSpy).toHaveBeenCalledWith({ name: 'Login' })
 
+    pushSpy.mockRestore()
+  })
+
+  it('fires the session-expired signal on 401 so the auth store drops its user (P3-22)', async () => {
+    const pushSpy = vi.spyOn(router, 'push').mockResolvedValue(undefined)
+    let fired = 0
+    const off = onSessionExpired(() => { fired++ })
+    server.use(http.get(TEST_URL, auth401))
+
+    await expect(api.get('/api/test-resource')).rejects.toMatchObject({ response: { status: 401 } })
+
+    expect(fired).toBe(1)
+    off()
     pushSpy.mockRestore()
   })
 

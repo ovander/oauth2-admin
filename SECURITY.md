@@ -1,99 +1,120 @@
-# Security Posture — Socrate Superadmin Portal
+# Security Posture — Socrate Admin Console
 
-This SPA is the privileged admin surface for the Socrate OAuth2/OIDC platform.
-It is held to the same hardening bar as the backend: it must not become the weak
-link or a vector into the server. This document records the controls that are
-enforced in code, plus the deployment requirements the host must provide.
+The admin console is the privileged surface of the Socrate OAuth2/OIDC platform.
+It is a Vue SPA plus a small Go **Backend-for-Frontend** (`bff/`) and is held to
+the same hardening bar as the server: it must not become the weak link or a
+vector into the admin API. This document records the controls enforced in code
+and the deployment requirements the host must provide. (An earlier revision
+described the retired browser-held-token architecture; this one reflects the
+BFF model that is actually deployed.)
+
+## Architecture in one paragraph
+
+Caddy is the only public listener. It serves the built SPA from a root-owned
+directory and reverse-proxies an explicit list of paths to the BFF on loopback.
+The BFF performs the Authorization Code + PKCE login **server-side** as a
+confidential client, keeps the OAuth tokens in a server-side session, and hands
+the browser only an opaque `__Host-` HttpOnly/Secure cookie. Every admin call
+is a same-origin cookie request; the BFF injects the bearer and is the only
+client of the loopback-only admin API. The browser never holds a token, so an
+XSS or a poisoned dependency cannot exfiltrate a replayable credential.
 
 ## Automated gates
 
-Run before every release (CI-ready):
+Run before every release (all are CI jobs):
 
 ```bash
-npm run security:check   # npm audit (high+) + ESLint security gate
+npm run lint:check       # ESLint security gate (see below)
 npm run build            # vue-tsc type check + production build
-npm run test:run         # unit + integration tests
+npm run test:run         # unit + integration tests (Vitest)
+npm audit --audit-level=high
+cd bff && go vet ./... && go test -race ./...
 ```
 
-- **Dependencies:** `npm audit` reports **0 known vulnerabilities** (production
-  and dev). Keep it that way — `security:check` fails the build on any high+
-  advisory.
 - **ESLint is a security gate, not a style linter** (`eslint.config.js`). It
   blocks, as errors: `eval`/`new Function`/implied-eval, `javascript:` URLs,
   assignment to `innerHTML`/`outerHTML`/`insertAdjacentHTML`, and Vue `v-html`.
-  No security-plugin dependencies are added, to keep the supply chain minimal.
+- **`npm audit --audit-level=high` fails the build** on any high/critical
+  advisory.
+- **CSP is unit-tested** (`csp.spec.ts`) so the canonical policy cannot lose a
+  hardening directive unnoticed; the e2e `headers.spec.ts` asserts the served
+  app carries it.
 
-## Runtime controls (enforced in code)
+## BFF controls (`bff/`, enforced in code)
 
-- **Authorization Code + PKCE login** (`src/services/oauth.ts`): the portal is a
-  first-party **public client** (no secret). Sign-in is delegated to the AS
-  hosted login — the SPA never sees the password or the MFA code. The `state`
-  returned from the AS is verified against a pre-redirect value (CSRF / mix-up
-  protection) and the PKCE `code_verifier` is single-use, held in
-  `sessionStorage` only for the redirect round-trip and cleared on completion.
-- **Access tokens live in memory only** (`src/services/api.ts`) — never written
-  to `localStorage`/`sessionStorage`. A page reload intentionally drops the
-  token and re-establishes the session via the **HttpOnly refresh cookie**
-  (rotated server-side; never readable by JS).
-- **Single refresh path** (`src/services/oauth.ts` `refreshAccessToken`): both
-  cold-start re-hydration and the 401 interceptor go through one helper, so the
-  rotation/replay/DPoP-enforcing backend endpoint is the only refresh route.
-- **Step-up (elevation) for destructive actions** (`src/services/adminGuards.ts`):
-  a `403 elevation_required` from any admin call triggers a re-auth prompt
-  (`ElevationDialog`), and the original request is retried once with the fresh
-  short-lived elevated token. A merely refreshed token is not accepted by the
-  backend — only re-auth clears the gate (ADMIN-SPA-MIGRATION.md §5).
-- **Forced password change** (`src/services/adminGuards.ts`, router guard): a
-  `403 password_change_required` gates every route to the change-password page
-  until the change succeeds; the backend then revokes all tokens and the SPA
-  forces a fresh login (§6). The step-up/change-password/refresh endpoints are
-  excluded from the silent-refresh retry so their `401`/`403` codes are never
-  masked.
-- **Transport security:** `src/utils/secureConfig.ts` throws at startup if the
-  API origin is not `https://` in production builds.
-- **CSRF mitigation:** every request carries an `X-Requested-By: oauth2-admin`
-  header; the API is configured to reject cross-site requests.
-- **No XSS sinks:** the codebase uses no `v-html`, `innerHTML`, `eval`, or
-  `document.write`; the ESLint gate prevents regressions.
-- **Canonical, tested CSP + Trusted Types** (`src/security/csp.ts`): the strict
-  production policy (`default-src 'none'`; `script-src 'self'` with no
-  `unsafe-inline`/`unsafe-eval`; `object-src`/`frame-ancestors 'none'`;
-  `base-uri`/`form-action 'self'`) is the single source of truth, unit-tested as
-  a deploy gate, and served by the dev + `vite preview` servers so local == prod.
-  Trusted Types (`require-trusted-types-for 'script'`) ships as a Report-Only
-  rollout — see `docs/security-headers.md`.
-- **Open-redirect protection:** post-login redirects accept only internal,
-  single-leading-slash relative paths (`LoginView`/`CallbackView`
-  `safeRedirect`/`safeReturn`).
-- **No source maps in production** (`vite.config.ts` `build.sourcemap: false`)
-  so application source is not exposed to the browser.
-- **Self-hosted fonts** — no external CDN requests.
+- **Sessions are mandatory.** The BFF refuses to start without `BFF_CLIENT_ID`
+  unless `BFF_PHASE1_PASSTHROUGH=true` is set deliberately; that mode and
+  `BFF_ALLOW_PASSTHROUGH` are logged as startup WARNINGs. `BFF_COOKIE_SECURE=false`
+  on an `https://` origin and non-positive session lifetimes are rejected.
+- **Strict allowlist, never an open proxy.** `/bff/*`, `/api/admin/*`,
+  `/api/profile`, `GET /api/version` and the two public password-reset posts;
+  everything else is 404. Non-canonical paths (including percent-encoded
+  dot-segments) are refused before matching.
+- **Login is bound to the browser.** `/bff/login` sets a nonce cookie stored
+  with the pending state; `/bff/callback` completes only for the browser that
+  presents it (login-CSRF / session-swap defence). State is single-use.
+- **Fail-closed proxy.** No valid session ⇒ 401. Unsafe methods require the
+  double-submit `X-CSRF-Token` (constant-time compare; an empty stored token
+  never matches). Logout is state-changing and needs it too.
+- **Token refresh** is coalesced across concurrent requests, detached from the
+  caller's context, written through to the session store, and only a grant the
+  issuer *rejects* (`invalid_grant`, `invalid_client`, …) tears the session
+  down — a token-endpoint outage is a retryable 502.
+- **Step-up (`/bff/elevate`)** re-authenticates the admin against the admin
+  API and absorbs the short-lived elevated token into the session; the token
+  never reaches the browser. Only the admin API's `4xx` challenge is forwarded
+  to the step-up dialog; upstream `5xx` bodies are not, and a token without a
+  usable `exp` is refused.
+- **Upstream hygiene.** Browser cookies never reach an upstream; client-IP
+  attribution headers (`X-Real-IP`, `True-Client-IP`, `Forwarded`) are
+  stripped so the issuer only trusts `X-Forwarded-For` from its loopback
+  proxies. Public pre-auth posts are forwarded without the session cookie or
+  any `Authorization` header.
+- **Per-IP budgets** on `/bff/login`, `/bff/elevate` and the password-reset
+  posts. `X-Forwarded-For` is honoured only when the TCP peer is loopback
+  (Caddy), which replaces any client-supplied value.
+- **Logout revokes** the refresh and access tokens at the issuer (RFC 7009)
+  before dropping the session and clearing the cookie.
+
+## SPA controls (enforced in code)
+
+- **No tokens in the browser.** `src/services/api.ts` sets no `Authorization`
+  header and stores nothing in `localStorage`/`sessionStorage`; auth state is
+  re-derived from `GET /bff/session` on every cold load.
+- **Single same-origin API instance.** All calls — admin API, profile
+  self-service and the public password-reset flows — go through the BFF on the
+  app's own origin; there is no cross-origin instance.
+- **401 handling.** A 401 clears the CSRF token *and* the cached user, then
+  routes to Login, so a restarted BFF cannot leave the app looping.
+- **Step-up and forced password change** (`src/services/adminGuards.ts`): a
+  `403 elevation_required` opens the re-auth dialog and retries once; a
+  `403 password_change_required` gates every route to the change-password page.
+- **CSRF.** Every unsafe request carries `X-CSRF-Token` from the session
+  bootstrap and the `X-Requested-By: oauth2-admin` marker.
+- **Transport security:** `src/utils/secureConfig.ts` refuses a non-`https://`
+  API origin in production builds.
+- **No XSS sinks** (no `v-html`, `innerHTML`, `eval`, `document.write`), with
+  the ESLint gate preventing regressions; **canonical, tested CSP + Trusted
+  Types** (`src/security/csp.ts`); **open-redirect protection** on post-login
+  return paths; **no source maps** in production; **self-hosted fonts**.
 
 ## Deployment requirements (host-provided)
 
-The policy is defined and tested in-repo (`src/security/csp.ts`), but the static
-SPA can't set its own response headers in production — the reverse proxy MUST
-deliver them, mirroring the canonical module (snippets in
-`docs/security-headers.md`):
+See `deploy/` for the Caddy site, systemd unit and scripts.
 
-- `Content-Security-Policy` — the strict `productionCsp()` (default-src 'none';
-  script-src 'self'; object-src/frame-ancestors 'none'; connect-src limited to
-  the API origin)
-- `Content-Security-Policy-Report-Only` — `productionCspReportOnly()` for the
-  Trusted Types soak, until promoted
-- `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
-  `Cross-Origin-Opener-Policy: same-origin`
-- `Referrer-Policy: strict-origin-when-cross-origin`
-- `Permissions-Policy: geolocation=(), microphone=(), camera=()`
-- Serve only over HTTPS (HSTS recommended).
-
-CI fails the build if the canonical policy loses a hardening directive
-(`csp.spec.ts`), and the e2e `headers.spec.ts` asserts the served app actually
-carries them.
-
-The single configured origin (`VITE_ADMIN_API_URL`) must front both the Admin
-API (`/api/admin/*`) and the public OAuth API (`/api/auth/*`, `/api/profile`)
-so the portal never talks cross-origin with credentials.
+- Caddy is the only public listener; the BFF binds `127.0.0.1:8091` and the
+  admin API stays on loopback. Do not set Caddy `trusted_proxies` unless a
+  further proxy sits in front of it.
+- Caddy delivers the security headers mirrored from `src/security/csp.ts`
+  (`Content-Security-Policy`, `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`,
+  `Cross-Origin-Opener-Policy`, HSTS).
+- `/srv/admin/dist` is **root-owned, 0644/0755**: Caddy only reads it, and the
+  BFF service user must not be able to modify the JavaScript served to admins.
+- Secrets (`BFF_CLIENT_SECRET`) live only in `/etc/socrate/admin-bff.env`
+  (`0640 root:socrate`).
+- The BFF container/binary is built with the Go toolchain pinned in
+  `bff/Dockerfile` (`golang:1.26`), matching `go.mod`.
 
 ## Reporting
 

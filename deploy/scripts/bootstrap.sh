@@ -8,7 +8,10 @@ DEPLOY_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 id -u socrate >/dev/null 2>&1 || { echo "service user 'socrate' must exist first"; exit 1; }
 
 echo "==> Directories"
-install -d -o socrate -g socrate -m0755 /srv/admin /srv/admin/dist
+# The SPA tree is root-owned and world-readable: Caddy only needs to read it,
+# and the BFF service user must NOT be able to rewrite the JavaScript it serves
+# to admins (a compromised BFF would otherwise become a persistent XSS). P3-25
+install -d -o root -g root -m0755 /srv/admin /srv/admin/dist
 install -d -m0755 /etc/socrate /var/backups/socrate
 
 echo "==> systemd unit"
