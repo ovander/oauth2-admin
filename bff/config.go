@@ -35,6 +35,9 @@ type Config struct {
 	// to the default.
 	LoginRate   int
 	ElevateRate int
+	// PasswordResetRate guards the two public issuer password-reset posts the
+	// BFF forwards (P3-23); both trigger email, so the budget is small.
+	PasswordResetRate int
 
 	// AllowPassthrough, when true, restores the legacy dual-mode behaviour where
 	// a request without a valid session is proxied through with its own

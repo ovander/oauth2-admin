@@ -265,10 +265,12 @@ func TestPhase2FullFlow(t *testing.T) {
 		t.Fatalf("POST with CSRF = %d, want 200", rr.Code)
 	}
 
-	// 6. /bff/logout → clears the cookie; session no longer resolves.
+	// 6. /bff/logout → clears the cookie; session no longer resolves. P3-19:
+	// logout is state-changing and needs the CSRF token like any other POST.
 	rr = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/bff/logout", nil)
 	req.AddCookie(cookie)
+	req.Header.Set("X-CSRF-Token", sess.CSRF)
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("logout = %d, want 204", rr.Code)
@@ -379,6 +381,7 @@ func TestLogoutRevokesTokens(t *testing.T) {
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/bff/logout", nil)
 	req.AddCookie(cookie)
+	req.Header.Set("X-CSRF-Token", "c")
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("logout = %d, want 204", rr.Code)

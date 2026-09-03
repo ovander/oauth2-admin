@@ -5,12 +5,13 @@
  *   • `api`       → admin API via the BFF (same-origin), carries the session
  *                   cookie (withCredentials). No bearer is ever set in the
  *                   browser — the BFF injects it server-side.
- *   • `issuerApi` → public, pre-auth issuer flows the BFF does not proxy
- *                   (forgot/reset password). No credentials.
+ *   • there is NO second instance: the public issuer flows the SPA needs are
+ *     allowlisted by the BFF on the same origin (P3-23).
  */
 import { describe, it, expect } from 'vitest'
-import api, { issuerApi } from '@/services/api'
-import { ADMIN_API_URL, OIDC_ISSUER } from '@/utils/secureConfig'
+import api from '@/services/api'
+import * as apiModule from '@/services/api'
+import { ADMIN_API_URL } from '@/utils/secureConfig'
 
 describe('api instances — BFF cookie model', () => {
   it('`api` targets the admin API (same-origin) and carries the session cookie', () => {
@@ -23,7 +24,7 @@ describe('api instances — BFF cookie model', () => {
     expect(headers).not.toContain('Authorization')
   })
 
-  it('`issuerApi` targets the public issuer for pre-auth flows', () => {
-    expect(issuerApi.defaults.baseURL).toBe(OIDC_ISSUER)
+  it('exports no cross-origin issuer instance (P3-23: everything is same-origin via the BFF)', () => {
+    expect('issuerApi' in apiModule).toBe(false)
   })
 })

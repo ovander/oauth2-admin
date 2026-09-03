@@ -16,7 +16,9 @@ Postgres, the static SPA, and the BFF binary.
                 ┌────▼─────┐   admin.vandermoten.eu
                 │  Caddy   │   (only public listener)
                 └────┬─────┘
-        /bff/*, /api/admin/* │      else
+  /bff/*, /api/admin/*, │      else
+  /api/profile, /api/version,
+  /api/auth/*-password-reset
                      │       └────────────► file_server  /srv/admin/dist  (SPA)
               ┌──────▼───────┐
               │  admin BFF   │  127.0.0.1:8091  (the only client of the admin API)
@@ -33,7 +35,7 @@ Postgres, the static SPA, and the BFF binary.
 |---|---|---|
 | Caddy site | `deploy/Caddyfile` → `/etc/caddy/sites/admin.vandermoten.eu.caddy` | Only public listener; CSP + security headers |
 | Admin BFF | `/usr/local/bin/socrate-admin-bff`, binds `127.0.0.1:8091` | Hardened systemd unit, user `socrate` |
-| SPA static | `/srv/admin/dist` | Built locally, rsync'd |
+| SPA static | `/srv/admin/dist` | Built locally, rsync'd; **root-owned, 0644** — the BFF user must not be able to modify it |
 | Env (secrets) | `/etc/socrate/admin-bff.env` (`0640 root:socrate`) | Only place secrets live |
 | Admin API | `127.0.0.1:8081` | Loopback only — never exposed |
 | Backups | `/var/backups/socrate/<timestamp>/` | Previous binary, for rollback |

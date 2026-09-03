@@ -25,10 +25,17 @@ admin.vandermoten.eu {
 		-Server
 	}
 
-	# BFF endpoints + admin API + allowlisted issuer self-service (/api/profile)
-	# → internal admin BFF (the ONLY client of the admin API). The BFF injects the
-	# bearer server-side. flush_interval -1 keeps the SSE event stream unbuffered.
-	@bff path /bff/* /api/admin/* /api/profile
+	# BFF endpoints + admin API + allowlisted issuer routes → internal admin BFF
+	# (the ONLY client of the admin API). The BFF injects the bearer server-side
+	# and allowlists the issuer paths one by one: /api/profile (session-auth
+	# self-service), /api/version (public probe) and the two public
+	# password-reset posts (P3-23). flush_interval -1 keeps SSE unbuffered.
+	#
+	# Trust model (P3-17): the BFF honours X-Forwarded-For only from a loopback
+	# peer, relying on Caddy's default trusted_proxies (none) to REPLACE any
+	# client-supplied X-Forwarded-For with the real peer address. Do not add
+	# `trusted_proxies` here unless a further proxy sits in front of Caddy.
+	@bff path /bff/* /api/admin/* /api/profile /api/version /api/auth/request-password-reset /api/auth/reset-password
 	handle @bff {
 		reverse_proxy 127.0.0.1:8091 {
 			flush_interval -1

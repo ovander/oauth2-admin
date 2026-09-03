@@ -25,6 +25,26 @@ export const csrfStore = {
   clear():             void           { _csrf = null },
 }
 
+// ─── Session-expired signal (P3-22) ───────────────────────────────────────────
+// The `api` 401 interceptor cannot import the auth store (circular: store →
+// authService → api), so it raises this signal instead and the store clears its
+// cached user. Without it a restarted BFF (all sessions gone) left
+// `authStore.user` populated: the router guard saw "authenticated", every call
+// bounced 401 → Login → guard → back again, and the admin was stuck.
+type SessionExpiredListener = () => void
+const sessionExpiredListeners = new Set<SessionExpiredListener>()
+
+/** Register a callback fired when the BFF session is found to be gone. Returns an unsubscribe. */
+export function onSessionExpired(fn: SessionExpiredListener): () => void {
+  sessionExpiredListeners.add(fn)
+  return () => { sessionExpiredListeners.delete(fn) }
+}
+
+/** Fire the session-expired listeners (called by the 401 interceptor). */
+export function notifySessionExpired(): void {
+  for (const fn of sessionExpiredListeners) fn()
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 export interface BffSessionUser {
   sub:   string

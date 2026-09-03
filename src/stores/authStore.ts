@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import * as authService from '@/services/authService'
-import { fetchSession, bffLogout, startLogin } from '@/services/session'
+import { fetchSession, bffLogout, startLogin, onSessionExpired } from '@/services/session'
 import { passwordChangeRequired, clearPasswordChangeRequired } from '@/services/adminGuards'
 import { normalizeRole } from '@/types/auth'
 import { isSuperAdminRole, isAppAdminRole, canManageUsersRole } from '@/utils/roles'
@@ -28,6 +28,11 @@ export const useAuthStore = defineStore('auth', () => {
   const isSuperAdmin    = computed(() => isSuperAdminRole(user.value?.role))
   const isAppAdmin      = computed(() => isAppAdminRole(user.value?.role))
   const canManageUsers  = computed(() => canManageUsersRole(user.value?.role))
+
+  // P3-22: when the api interceptor sees a 401 the BFF session is gone — drop
+  // the cached user so isAuthenticated flips false and the router guard sends
+  // the admin to Login instead of looping.
+  onSessionExpired(() => { user.value = null })
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
   /**

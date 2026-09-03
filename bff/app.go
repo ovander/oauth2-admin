@@ -28,19 +28,29 @@ type app struct {
 	oauth       *oauthClient
 	issuerProxy *httputil.ReverseProxy // authenticated issuer self-service (e.g. /api/profile)
 
-	loginLimiter   *rateLimiter // per-IP budget for /bff/login
-	elevateLimiter *rateLimiter // per-IP budget for /bff/elevate
+	loginLimiter         *rateLimiter // per-IP budget for /bff/login
+	elevateLimiter       *rateLimiter // per-IP budget for /bff/elevate
+	passwordResetLimiter *rateLimiter // per-IP budget for the issuer's pre-auth password-reset posts
 }
 
 func newApp(cfg *Config) *app {
-	a := &app{cfg: cfg, adminProxy: bff.NewSingleHostProxy(cfg.AdminUpstream)}
+	a := &app{
+		cfg:                  cfg,
+		adminProxy:           bff.NewSingleHostProxy(cfg.AdminUpstream),
+		passwordResetLimiter: newRateLimiter(cfg.PasswordResetRate, rateWindow),
+	}
+	// The issuer proxy also serves the public pass-through routes (P3-23), so
+	// it exists in both phases whenever an issuer upstream is configured
+	// (LoadConfig always sets one; only bare test configs leave it nil).
+	if cfg.OAuthUpstream != nil {
+		a.issuerProxy = bff.NewSingleHostProxy(cfg.OAuthUpstream)
+	}
 	if cfg.Phase2Enabled() {
 		a.store = bff.NewMemoryStore(cfg.SessionIdle, cfg.SessionAbsolute)
 		a.cookie = bff.CookieConfig{Name: "admin_session", Secure: cfg.CookieSecure, MaxAge: int(cfg.SessionAbsolute.Seconds())}
 		a.logins = newLoginStore(10 * time.Minute)
 		a.login = bff.LoginBinding{Cookie: bff.CookieConfig{Name: "admin_login", Secure: cfg.CookieSecure}, TTL: 10 * time.Minute}
 		a.oauth = newOAuthClient(cfg.OAuthUpstream, cfg.ClientID, cfg.ClientSecret)
-		a.issuerProxy = bff.NewSingleHostProxy(cfg.OAuthUpstream)
 		a.loginLimiter = newRateLimiter(cfg.LoginRate, rateWindow)
 		a.elevateLimiter = newRateLimiter(cfg.ElevateRate, rateWindow)
 		a.gateway = &bff.Gateway{
@@ -80,16 +90,36 @@ func (a *app) handler() http.Handler {
 		mux.Handle("/api/admin/", a.adminProxy)
 	}
 
+	// P3-23: the SPA needs three public issuer endpoints on its own origin —
+	// the version probe and the two pre-auth password-reset posts. Each is
+	// allowlisted by exact path + method; the password-reset pair triggers
+	// email upstream, so it gets its own per-IP budget here, before the issuer
+	// (which would otherwise see every request coming from this host).
+	if a.issuerProxy != nil {
+		mux.Handle("GET /api/version", a.issuerProxy)
+		mux.HandleFunc("POST /api/auth/request-password-reset", a.handlePublicIssuerPost)
+		mux.HandleFunc("POST /api/auth/reset-password", a.handlePublicIssuerPost)
+	}
+
 	// Allowlist: everything else is 404 — never an open proxy.
 	mux.HandleFunc("/", http.NotFound)
-	return mux
+	return canonicalPathOnly(mux)
+}
+
+// handlePublicIssuerPost forwards a pre-auth issuer POST. These endpoints are
+// unauthenticated by design, so the session cookie and any Authorization header
+// the browser sends are dropped before the request leaves the BFF.
+func (a *app) handlePublicIssuerPost(w http.ResponseWriter, r *http.Request) {
+	if a.rateLimited(w, r, a.passwordResetLimiter) {
+		return
+	}
+	r.Header.Del("Cookie")
+	r.Header.Del("Authorization")
+	a.issuerProxy.ServeHTTP(w, r)
 }
 
 // startBackground runs the expiry sweepers until ctx is cancelled (Phase 2).
 func (a *app) startBackground(ctx context.Context) {
-	if a.store == nil {
-		return
-	}
 	go func() {
 		t := time.NewTicker(time.Minute)
 		defer t.Stop()
@@ -98,10 +128,13 @@ func (a *app) startBackground(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				a.store.Sweep()
-				a.logins.sweep()
+				if a.store != nil {
+					a.store.Sweep()
+					a.logins.sweep()
+				}
 				a.loginLimiter.sweep()
 				a.elevateLimiter.sweep()
+				a.passwordResetLimiter.sweep()
 			}
 		}
 	}()
@@ -187,6 +220,8 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleSession(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	// P3-20: the body carries the CSRF token and identity — never cacheable.
+	w.Header().Set("Cache-Control", "no-store")
 	s, ok := a.gateway.SessionFromRequest(r)
 	if !ok {
 		_ = json.NewEncoder(w).Encode(map[string]any{"authenticated": false})
@@ -199,7 +234,15 @@ func (a *app) handleSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if s, ok := a.gateway.SessionFromRequest(r); ok {
+		// P3-19: logout is state-changing (revokes tokens, drops the session).
+		// Without the double-submit check any cross-site page could log the
+		// admin out at will. Same header and comparison as the admin proxy.
+		if !s.MatchCSRF(r.Header.Get(bff.DefaultCSRFHeader)) {
+			http.Error(w, "missing or invalid CSRF token", http.StatusForbidden)
+			return
+		}
 		a.revokeSessionTokens(r.Context(), s)
 		a.store.Delete(s.ID())
 	}

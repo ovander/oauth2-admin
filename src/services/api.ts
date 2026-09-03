@@ -1,7 +1,7 @@
 import axios, { type AxiosInstance, type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import router from '@/router/router'
-import { ADMIN_API_URL, OIDC_ISSUER } from '@/utils/secureConfig'
-import { csrfStore } from '@/services/session'
+import { ADMIN_API_URL } from '@/utils/secureConfig'
+import { csrfStore, notifySessionExpired } from '@/services/session'
 import {
   requireElevation,
   flagPasswordChangeRequired,
@@ -27,16 +27,9 @@ const api: AxiosInstance = axios.create({
   },
 })
 
-// `issuerApi` → public, PRE-AUTH issuer flows that the BFF does not proxy
-//   (forgot/reset password). These carry no session and no bearer.
-export const issuerApi: AxiosInstance = axios.create({
-  baseURL:  OIDC_ISSUER,
-  timeout:  30_000,
-  headers: {
-    'Content-Type':   'application/json',
-    'X-Requested-By': 'oauth2-admin',
-  },
-})
+// P3-23: there is no second, cross-origin instance any more. The public issuer
+// flows the SPA needs (forgot/reset password, /api/version) are allowlisted by
+// the BFF on this origin, so `api` is the only instance.
 
 // ─── Request interceptor — attach the CSRF token on unsafe methods ────────────
 function isUnsafe(method?: string): boolean {
@@ -71,6 +64,10 @@ api.interceptors.response.use(
 
     if (status === 401 && !isAuthFormEndpoint) {
       csrfStore.clear()
+      // P3-22: drop the cached user too, otherwise the router guard still
+      // believes we are authenticated and the app loops between the 401 and
+      // the Login route after a BFF restart.
+      notifySessionExpired()
       router.push({ name: 'Login' })
       return Promise.reject(error)
     }

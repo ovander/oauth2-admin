@@ -35,7 +35,10 @@ if [ -d "$SPA_SRC" ]; then
 	echo "==> Syncing SPA → $SPA_DST"
 	mkdir -p "$SPA_DST"
 	rsync -a --delete "$SPA_SRC/" "$SPA_DST/"
-	chown -R socrate:socrate "$SPA_DST"
+	# Root-owned, read-only for everyone else (Caddy reads; the BFF user must
+	# not be able to modify the served SPA). P3-25
+	chown -R root:root "$SPA_DST"
+	find "$SPA_DST" -type d -exec chmod 0755 {} + -o -type f -exec chmod 0644 {} +
 fi
 
 # ── Validate + restart ───────────────────────────────────────────────────────

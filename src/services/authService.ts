@@ -1,14 +1,13 @@
-import api, { issuerApi } from './api'
+import api from './api'
 import type { User } from '@/types/auth'
 
 // Authentication is an Authorization Code + PKCE flow driven entirely by the BFF
 // (server-side). The SPA holds no tokens — see services/session.ts. Login,
 // logout and step-up elevation all go through the BFF (`/bff/*`).
 //
-// Endpoint → instance:
-//   • api       → admin API via the BFF (same-origin /api/admin/*, cookie auth)
-//   • issuerApi → public, pre-auth issuer flows the BFF does not proxy
-//                 (forgot/reset password)
+// Every call is same-origin through the BFF, which allowlists the admin API
+// (`/api/admin/*`, cookie auth), the issuer's profile self-service
+// (`/api/profile`) and — P3-23 — the public, pre-auth password-reset posts.
 
 export async function getProfile(): Promise<User> {
   const response = await api.get<User>('/api/admin/profile')
@@ -37,8 +36,10 @@ export async function updateProfile(data: Partial<User>): Promise<User> {
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {
-  // Password reset is a public-API (issuer) flow — no admin-side route exists.
-  await issuerApi.post('/api/auth/request-password-reset', { email })
+  // Public issuer flow, reached same-origin through the BFF allowlist (P3-23):
+  // previously this posted to the configured issuer origin, where the request
+  // either failed CORS or "succeeded" against the wrong host.
+  await api.post('/api/auth/request-password-reset', { email })
 }
 
 /**
@@ -47,5 +48,5 @@ export async function requestPasswordReset(email: string): Promise<void> {
  * request body — it is NEVER forwarded in a query parameter (F-08).
  */
 export async function resetPassword(token: string, password: string): Promise<void> {
-  await issuerApi.post('/api/auth/reset-password', { token, password })
+  await api.post('/api/auth/reset-password', { token, password })
 }
