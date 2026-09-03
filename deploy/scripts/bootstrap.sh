@@ -5,7 +5,9 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 DEPLOY_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 
-id -u socrate >/dev/null 2>&1 || { echo "service user 'socrate' must exist first"; exit 1; }
+# The admin BFF runs as its own no-login user (P4-1): it must not be able to
+# read the identity server's signing keys or env, which belong to 'socrate'.
+id -u socrate-admin-bff >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin socrate-admin-bff
 
 echo "==> Directories"
 # The SPA tree is root-owned and world-readable: Caddy only needs to read it,

@@ -34,9 +34,9 @@ Postgres, the static SPA, and the BFF binary.
 | Component | Path / bind | Notes |
 |---|---|---|
 | Caddy site | `deploy/Caddyfile` → `/etc/caddy/sites/admin.vandermoten.eu.caddy` | Only public listener; CSP + security headers |
-| Admin BFF | `/usr/local/bin/socrate-admin-bff`, binds `127.0.0.1:8091` | Hardened systemd unit, user `socrate` |
+| Admin BFF | `/usr/local/bin/socrate-admin-bff`, binds `127.0.0.1:8091` | Hardened systemd unit, own user `socrate-admin-bff` (P4-1) |
 | SPA static | `/srv/admin/dist` | Built locally, rsync'd; **root-owned, 0644** — the BFF user must not be able to modify it |
-| Env (secrets) | `/etc/socrate/admin-bff.env` (`0640 root:socrate`) | Only place secrets live |
+| Env (secrets) | `/etc/socrate/admin-bff.env` (`0640 root:socrate-admin-bff`) | Only place secrets live |
 | Admin API | `127.0.0.1:8081` | Loopback only — never exposed |
 | Backups | `/var/backups/socrate/<timestamp>/` | Previous binary, for rollback |
 
@@ -83,7 +83,11 @@ sudo systemctl restart socrate-admin-bff
 - **BFF is an allowlist**, never an open proxy — only `/bff/*` and `/api/admin/*`.
 - **Hardened systemd unit:** `NoNewPrivileges`, `ProtectSystem=strict`, dropped
   capabilities, `SystemCallFilter=@system-service`, `MemoryDenyWriteExecute`, etc.
-- **Secrets** live only in `/etc/socrate/admin-bff.env` (`0640 root:socrate`),
+- **Own service user (P4-1):** the BFF runs as `socrate-admin-bff`, not as
+  the identity server's `socrate`; the unit also masks `/var/lib/socrate`
+  (signing keys) and the other services' env files with `InaccessiblePaths`,
+  so a compromised BFF cannot reach the private key or `SECRET_KEY_BASE`.
+- **Secrets** live only in `/etc/socrate/admin-bff.env` (`0640 root:socrate-admin-bff`),
   never in the repo or the SPA. The confidential OAuth client_id/secret are held
   by the BFF alone.
 - Once the SPA is cookie-only, there is **no direct browser→admin-API path** —
