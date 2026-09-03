@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ovander/backendkit/bff"
 	"github.com/ovander/backendkit/socrate"
 )
 
@@ -50,11 +51,17 @@ func (a *app) handleElevate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use a fresh (proactively refreshed) bearer for the upstream elevate call.
+	// Same policy as the shared proxy: only a refresh the issuer REJECTS kills
+	// the session; a transient token-endpoint failure is a 502 the SPA can retry.
 	access, err := a.gateway.EnsureFresh(r.Context(), s)
 	if err != nil {
-		a.store.Delete(s.ID())
-		a.cookie.ClearSession(w)
-		http.Error(w, "session expired", http.StatusUnauthorized)
+		if bff.IsFatalRefreshError(err) {
+			a.store.Delete(s.ID())
+			a.cookie.ClearSession(w)
+			http.Error(w, "session expired", http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, "token refresh unavailable", http.StatusBadGateway)
 		return
 	}
 

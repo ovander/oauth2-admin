@@ -2,7 +2,7 @@ module github.com/ovander/oauth2-admin/bff
 
 go 1.25.0
 
-require github.com/ovander/backendkit v1.11.1
+require github.com/ovander/backendkit v1.12.0
 
 require (
 	github.com/google/uuid v1.6.0 // indirect
