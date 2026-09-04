@@ -22,12 +22,17 @@ systemctl daemon-reload
 
 echo "==> env file"
 if [ ! -f /etc/socrate/admin-bff.env ]; then
-	install -m0640 -o root -g socrate "$DEPLOY_DIR/env/admin-bff.env.example" /etc/socrate/admin-bff.env
+	install -m0640 "$DEPLOY_DIR/env/admin-bff.env.example" /etc/socrate/admin-bff.env
 	echo "    seeded /etc/socrate/admin-bff.env — set BFF_CLIENT_SECRET (and check the other Phase 2 values) before starting;"
 	echo "    the BFF refuses to run without server-side sessions unless BFF_PHASE1_PASSTHROUGH=true is set deliberately"
 else
-	echo "    /etc/socrate/admin-bff.env exists — left unchanged"
+	echo "    /etc/socrate/admin-bff.env exists — left unchanged (ownership refreshed)"
 fi
+# P4-1: readable by root and this BFF's own user only. Applied on every run, so
+# an install seeded before the user split is repaired by re-running bootstrap.
+# Group "socrate" would let the identity server read this client secret.
+chown root:socrate-admin-bff /etc/socrate/admin-bff.env
+chmod 0640 /etc/socrate/admin-bff.env
 
 echo "==> Caddy site"
 if [ -d /etc/caddy ]; then
