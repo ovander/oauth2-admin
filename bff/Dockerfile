@@ -2,7 +2,7 @@
 # Pinned to the exact patch release in go.mod's toolchain line; CI fails if the
 # two drift (1.24 once silently fell behind — P3-25). The golang images set
 # GOTOOLCHAIN=local, so this tag is the Go that compiles the shipped binary.
-FROM golang:1.26.8-alpine AS build
+FROM golang:1.27.1-alpine AS build
 WORKDIR /src
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/socrate-admin-bff .
