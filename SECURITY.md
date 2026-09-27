@@ -113,8 +113,9 @@ See `deploy/` for the Caddy site, systemd unit and scripts.
   BFF service user must not be able to modify the JavaScript served to admins.
 - Secrets (`BFF_CLIENT_SECRET`) live only in `/etc/socrate/admin-bff.env`
   (`0640 root:socrate`).
-- The BFF container/binary is built with the Go toolchain pinned in
-  `bff/Dockerfile` (`golang:1.26`), matching `go.mod`.
+- The BFF is built, tested and shipped with one Go: `toolchain go1.26.8` in
+  `bff/go.mod` and `golang:1.26.8-alpine` in `bff/Dockerfile`. CI builds with
+  the go.mod pin and fails if the Dockerfile's image drifts from it.
 
 ## Reporting
 
