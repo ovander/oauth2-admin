@@ -112,10 +112,21 @@ api.interceptors.response.use(
 export default api
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
+// Refusals from Socrate's access policy (A4) carry a machine code, not a
+// sentence. Translate the ones an admin can act on; any other code is shown
+// as-is, as before.
+const POLICY_ERROR_MESSAGES: Record<string, string> = {
+  policy_denied:      'This action is not allowed by the access policy.',
+  mfa_required:       'The access policy requires a session signed in with multi-factor authentication for this action.',
+  policy_unavailable: 'The access policy is unavailable right now. Try again shortly.',
+}
+
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     if (error.response?.data?.message) return error.response.data.message as string
-    if (error.response?.data?.error)   return error.response.data.error as string
+    const code = error.response?.data?.error as string | undefined
+    if (code && POLICY_ERROR_MESSAGES[code]) return POLICY_ERROR_MESSAGES[code]
+    if (code) return code
     if (error.message)                 return error.message
   }
   return 'An unexpected error occurred'
