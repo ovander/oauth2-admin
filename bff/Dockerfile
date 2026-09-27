@@ -1,7 +1,8 @@
-# Build context = bff/. Stdlib only → static binary, no go.sum needed.
-# Pin to the toolchain the module actually builds with (go.mod / backendkit
-# v1.12.0 need Go 1.26); 1.24 silently fell behind (P3-25).
-FROM golang:1.26-alpine AS build
+# Build context = bff/. Static binary.
+# Pinned to the exact patch release in go.mod's toolchain line; CI fails if the
+# two drift (1.24 once silently fell behind — P3-25). The golang images set
+# GOTOOLCHAIN=local, so this tag is the Go that compiles the shipped binary.
+FROM golang:1.26.8-alpine AS build
 WORKDIR /src
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/socrate-admin-bff .
