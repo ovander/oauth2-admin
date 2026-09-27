@@ -151,7 +151,7 @@ func (c *oauthClient) elevate(ctx context.Context, adminUpstream *url.URL, beare
 	if err != nil {
 		return 0, "", nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 
 	if resp.StatusCode == http.StatusOK {

@@ -116,7 +116,7 @@ func (c *oauthClient) postForm(ctx context.Context, form url.Values) (*tokenResp
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
 		// Typed so bff.IsFatalRefreshError can tell a rejected grant
@@ -182,7 +182,7 @@ func (c *oauthClient) revoke(ctx context.Context, token, tokenTypeHint string) e
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	// RFC 7009: the endpoint returns 200 for a successful (or already-invalid)
 	// revocation. Treat anything else as an error for the best-effort caller.
