@@ -23,10 +23,11 @@ import (
 func TestEndToEndBrowserFlow(t *testing.T) {
 	// ── Mock admin API (loopback upstream) ──────────────────────────────────────
 	// Asserts the BFF injected a bearer and stripped the session cookie.
-	var sawBearer, sawCookie string
+	var sawBearer, sawCookie, sawPath string
 	admin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sawBearer = r.Header.Get("Authorization")
 		sawCookie = r.Header.Get("Cookie")
+		sawPath = r.Method + " " + r.URL.Path
 		if sawBearer == "" {
 			http.Error(w, "no bearer", http.StatusUnauthorized)
 			return
@@ -157,6 +158,43 @@ func TestEndToEndBrowserFlow(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("POST with CSRF = %d, want 200", resp.StatusCode)
+	}
+
+	// ── 4b. App-scoped routes (/api/apps/{id}/…) live on the admin listener too:
+	// same bearer injection, same CSRF rule, path forwarded unchanged. ────────────
+	sawBearer, sawCookie = "", ""
+	resp, err = client.Get(bffSrv.URL + "/api/apps/2/users")
+	if err != nil {
+		t.Fatalf("app-scoped GET: %v", err)
+	}
+	body, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(body) != "admin-ok" || sawPath != "GET /api/apps/2/users" {
+		t.Fatalf("app-scoped GET = %d %q (upstream saw %q)", resp.StatusCode, body, sawPath)
+	}
+	if sawBearer != "Bearer "+accessJWT || sawCookie != "" {
+		t.Errorf("app-scoped GET: bearer=%q cookie=%q", sawBearer, sawCookie)
+	}
+
+	resp, err = client.Post(bffSrv.URL+"/api/apps/2/users", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("app-scoped POST no-csrf: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("app-scoped POST without CSRF = %d, want 403", resp.StatusCode)
+	}
+
+	req, _ = http.NewRequest(http.MethodPost, bffSrv.URL+"/api/apps/2/users", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", sess.CSRF)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("app-scoped POST with-csrf: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || sawPath != "POST /api/apps/2/users" {
+		t.Fatalf("app-scoped POST with CSRF = %d (upstream saw %q), want 200", resp.StatusCode, sawPath)
 	}
 
 	// ── 5. Logout → cookie cleared; the session no longer resolves. ──────────────
