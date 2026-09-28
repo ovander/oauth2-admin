@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Build (unless SKIP_BUILD=1) and ship artifacts to the VPS, then run the remote
 # installer. Requires: VPS_HOST=user@host  (VPS_PORT defaults to 22).
+#
+# Usage: VPS_HOST=user@host ./deploy/scripts/push.sh [REF]
+#   REF  git ref (tag/branch/commit) to build — also settable in the env.
+#        Default: current working tree. e.g.  ./push.sh v1.4.0
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -9,11 +13,13 @@ ARTIFACTS="$REPO_ROOT/deploy/_artifacts"
 
 : "${VPS_HOST:?set VPS_HOST=user@host}"
 VPS_PORT="${VPS_PORT:-22}"
+REF="${REF:-${1:-}}"
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
-	"$SCRIPT_DIR/build.sh"
+	REF="$REF" "$SCRIPT_DIR/build.sh"
 fi
 [ -d "$ARTIFACTS" ] || { echo "no artifacts at $ARTIFACTS — run build.sh first"; exit 1; }
+[ -f "$ARTIFACTS/ADMIN_VERSION" ] && echo "==> shipping admin version: $(cat "$ARTIFACTS/ADMIN_VERSION")"
 
 REMOTE_TMP="/tmp/socrate-admin-deploy.$$"
 SSH=(ssh -p "$VPS_PORT" "$VPS_HOST")
