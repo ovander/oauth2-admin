@@ -161,6 +161,11 @@ export default defineConfig(({ mode }) => {
         'src/composables/useSessionTimeout.ts',
         'src/views/auth/LoginView.vue',
         'src/views/auth/ResetPasswordView.vue',
+        // A4 access-policy editor: the logic behind the view (the view itself
+        // is a thin template, mounted in PolicyView.spec.ts).
+        'src/services/policyService.ts',
+        'src/utils/policy.ts',
+        'src/composables/usePolicyEditor.ts',
       ],
       exclude: [
         'src/**/*.spec.ts',

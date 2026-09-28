@@ -38,6 +38,9 @@ const routes: RouteRecordRaw[] = [
       { path: 'security/blocked-ips', name: 'BlockedIps', component: () => import('@/views/security/BlockedIpsView.vue'), meta: { title: 'Blocked IPs', requiresSuperAdmin: true } },
       { path: 'security/alerts', name: 'Alerts', component: () => import('@/views/security/AlertsView.vue'), meta: { title: 'Alerts', requiresSuperAdmin: true } },
       { path: 'security/reports', name: 'Reports', component: () => import('@/views/security/ReportsView.vue'), meta: { title: 'Security Reports', requiresSuperAdmin: true } },
+      // A4: the access-policy editor. Superadmin-only here and on the server
+      // (/api/admin/policy requires role=superadmin; writes need step-up).
+      { path: 'security/policy', name: 'Policy', component: () => import('@/views/security/PolicyView.vue'), meta: { title: 'Access Policy', requiresSuperAdmin: true } },
       { path: 'logs',       name: 'AdminLogs',       component: () => import('@/views/logs/AdminLogsView.vue'),               meta: { title: 'Admin Logs',      requiresSuperAdmin: true } },
       { path: 'settings',   name: 'Settings',        component: () => import('@/views/settings/SettingsView.vue'),            meta: { title: 'Settings'          } },
       { path: 'settings/profile', name: 'Profile',   component: () => import('@/views/settings/ProfileView.vue'),            meta: { title: 'My Profile'        } },

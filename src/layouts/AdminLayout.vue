@@ -239,6 +239,7 @@ const securityNavigation = [
   { name: 'blocked-ips',       label: 'Blocked IPs',  icon: 'pi-ban',           to: { name: 'BlockedIps'    } },
   { name: 'alerts',            label: 'Alerts',       icon: 'pi-bell',          to: { name: 'Alerts'        } },
   { name: 'reports',           label: 'Reports',      icon: 'pi-file',          to: { name: 'Reports'       } },
+  { name: 'policy',            label: 'Access policy', icon: 'pi-sitemap',      to: { name: 'Policy'        } },
 ]
 
 const systemNavigation = [
