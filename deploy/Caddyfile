@@ -25,8 +25,9 @@ admin.vandermoten.eu {
 		-Server
 	}
 
-	# BFF endpoints + admin API + allowlisted issuer routes → internal admin BFF
-	# (the ONLY client of the admin API). The BFF injects the bearer server-side
+	# BFF endpoints + admin API (/api/admin/* and the app-scoped /api/apps/*,
+	# both on the admin listener) + allowlisted issuer routes → internal admin
+	# BFF (the ONLY client of the admin API). The BFF injects the bearer server-side
 	# and allowlists the issuer paths one by one: /api/profile (session-auth
 	# self-service), /api/version (public probe) and the two public
 	# password-reset posts (P3-23). flush_interval -1 keeps SSE unbuffered.
@@ -35,7 +36,7 @@ admin.vandermoten.eu {
 	# peer, relying on Caddy's default trusted_proxies (none) to REPLACE any
 	# client-supplied X-Forwarded-For with the real peer address. Do not add
 	# `trusted_proxies` here unless a further proxy sits in front of Caddy.
-	@bff path /bff/* /api/admin/* /api/profile /api/version /api/auth/request-password-reset /api/auth/reset-password
+	@bff path /bff/* /api/admin/* /api/apps/* /api/profile /api/version /api/auth/request-password-reset /api/auth/reset-password
 	handle @bff {
 		reverse_proxy 127.0.0.1:8091 {
 			flush_interval -1

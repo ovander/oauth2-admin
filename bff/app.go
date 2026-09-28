@@ -85,9 +85,15 @@ func (a *app) handler() http.Handler {
 
 		// Admin API: session→token injection via the shared gateway.
 		mux.HandleFunc("/api/admin/", a.gateway.ProxyWithSession(a.adminProxy))
+		// App-scoped user management and activity (/api/apps/{id}/users,
+		// /api/apps/{id}/logs) is served by the same admin listener, not the
+		// issuer; without this route the SPA's app Users/Activity tabs got the
+		// static index.html back and every write failed.
+		mux.HandleFunc("/api/apps/", a.gateway.ProxyWithSession(a.adminProxy))
 	} else {
 		// Phase 1 (no sessions): pure pass-through.
 		mux.Handle("/api/admin/", a.adminProxy)
+		mux.Handle("/api/apps/", a.adminProxy)
 	}
 
 	// P3-23: the SPA needs three public issuer endpoints on its own origin —
