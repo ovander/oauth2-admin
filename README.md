@@ -228,6 +228,8 @@ src/
 │   ├── useToast.ts
 │   ├── useVersionCheck.ts        # polls /api/version, flags a server upgrade
 │   └── useVersionInfo.ts
+├── dev/
+│   └── devProxy.ts               # Vite dev-server proxy table (mirrors the Caddy routes)
 ├── layouts/
 │   ├── AdminLayout.vue           # sidebar, top bar, theme toggle
 │   └── AuthLayout.vue            # sign-in and password pages
@@ -341,15 +343,12 @@ In another, the SPA:
 npm run dev    # http://localhost:5173
 ```
 
-The Vite dev server (`vite.config.ts`) forwards `/bff/*` and `/api/admin/*` to the BFF on
-`localhost:8091`, and `/api/auth/*`, `/api/profile` and `/oauth/*` straight to the issuer on
-`localhost:8080`. Open `http://localhost:5173`, choose **Sign in with Socrate**, and complete
-Socrate's hosted login.
-
-> Two limits of the dev proxy today: `/api/apps/*` and `/api/version` are not forwarded, so an
-> application's Users and Activity tabs and the server version do not load under `npm run dev`;
-> and `/api/profile` goes to the issuer without the BFF, so saving your own profile fails in
-> development. Both work behind Caddy, which sends these paths to the BFF.
+The Vite dev server (`src/dev/devProxy.ts`, used by `vite.config.ts`) forwards the same paths to
+the BFF on `localhost:8091` as Caddy does in production: `/bff/*`, `/api/admin/*`, `/api/apps/*`,
+`/api/profile`, `/api/version` and the two password-reset posts. Only `/oauth/*` goes straight to
+the issuer on `localhost:8080`; any other path is served by the SPA. A unit test keeps this table
+in step with `deploy/Caddyfile`. Open `http://localhost:5173`, choose **Sign in with Socrate**,
+and complete Socrate's hosted login.
 
 ### Build
 
@@ -439,7 +438,6 @@ The admin console is in active use as part of the Socrate suite. Current focus:
 
 - Keeping the console in step with the admin API, including the access-policy editor
 - Test coverage beyond the security-critical modules (views such as applications and users)
-- Keeping the dev proxy aligned with the production routes
 
 ## Contributing
 
