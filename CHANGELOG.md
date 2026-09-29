@@ -1,8 +1,8 @@
 # Changelog
 
-All notable changes to the Socrate admin console are documented here. The format is based on
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All notable changes to the Socrate admin console are documented here.
+Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
+[Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
@@ -13,6 +13,14 @@ All notable changes to the Socrate admin console are documented here. The format
   changelog.
 - `SECURITY.md` now opens with how to report a vulnerability (GitHub private vulnerability
   reporting), the scope and the supported versions; the security-posture content is unchanged.
+
+### Changed
+
+- Documentation brought to the suite's standard and checked against the code (README,
+  `bff/README.md`, `docs/`, `deploy/README.md`, `SECURITY.md`, `CONTRIBUTING.md`, the
+  `.env.example` comments and the GitHub templates): full local setup and testing sections, the
+  access-policy editor, the enforced role guard, the complete list of proxied routes, and the BFF
+  described as built on backendkit.
 
 ### Removed
 
@@ -25,3 +33,5 @@ All notable changes to the Socrate admin console are documented here. The format
 - The README declared an MIT licence with no licence file; the project is Apache-2.0.
 
 Changes before this changelog was introduced are in the git history.
+
+[Unreleased]: https://github.com/ovander/oauth2-admin/commits/main
