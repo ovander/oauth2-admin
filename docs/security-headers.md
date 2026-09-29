@@ -1,149 +1,105 @@
-# Security Headers Deployment Guide
+# Security headers
 
-This document describes the HTTP security headers that MUST be configured on the
-reverse proxy (Nginx, Caddy, Apache, etc.) that serves the admin SPA. The final
-response header is set at the transport layer — but the **policy itself is owned
-in code**:
+The admin SPA must be served with a strict Content Security Policy and a set of hardening
+headers. The edge sets them on every response; in the deploy kit that edge is Caddy. The policy
+itself is owned in code.
 
-> **Canonical source:** [`src/security/csp.ts`](../src/security/csp.ts) —
-> `productionCsp()`, `productionCspReportOnly()` and `SECURITY_HEADERS`. It is
-> unit-tested (`src/__tests__/unit/csp.spec.ts`) and the **dev and `vite preview`
-> servers serve these exact headers**, so what you test locally matches prod.
-> Keep the proxy config below in sync with that module (the snippets are
-> generated from it).
+> **Canonical source:** [`src/security/csp.ts`](../src/security/csp.ts): `productionCsp()`,
+> `productionCspReportOnly()` and `SECURITY_HEADERS`. It is unit-tested
+> (`src/__tests__/unit/csp.spec.ts`), the Vite dev and `vite preview` servers serve these
+> headers, and the Playwright test `e2e/security/headers.spec.ts` checks that the served app
+> carries them. **The deployed configuration is [`deploy/Caddyfile`](../deploy/Caddyfile)**;
+> change it and `csp.ts` in the same pull request.
 
----
+## The headers
 
-## Required Headers
+| Header | Value from `csp.ts` |
+|---|---|
+| `Content-Security-Policy` | `productionCsp()`, see below |
+| `X-Frame-Options` | `DENY` |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Permissions-Policy` | `geolocation=(), microphone=(), camera=()` |
+| `Cross-Origin-Opener-Policy` | `same-origin` |
 
-### Content-Security-Policy (F-02)
+HSTS is not part of `csp.ts`; the Caddyfile sets
+`Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`.
 
-```nginx
-add_header Content-Security-Policy
-  "default-src 'none';
-   script-src  'self';
-   style-src   'self' 'unsafe-inline';
-   font-src    'self';
-   connect-src 'self' https://your-admin-api-host;
-   img-src     'self' data:;
-   base-uri    'self';
-   form-action 'self';
-   object-src  'none';
-   frame-ancestors 'none';"
-  always;
+### Content-Security-Policy
+
+`productionCsp()` returns, for the same-origin BFF deployment (no API origin to add):
+
+```
+default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;
+font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self';
+frame-ancestors 'none'; object-src 'none'
 ```
 
-The production build emits **no inline scripts** (one external module script), so
-`script-src 'self'` holds with no `'unsafe-inline'`/`'unsafe-eval'`. `'unsafe-inline'`
-remains only under `style-src` (PrimeVue/Tailwind inject `<style>` at runtime).
+(one line in the header). With `VITE_ADMIN_API_URL` set, that origin is added to `connect-src`.
 
-**Rollout strategy (recommended):**
-1. Deploy with `Content-Security-Policy-Report-Only` and set `report-uri /csp-reports`.
-2. Monitor violation reports for 1–2 weeks.
-3. Promote to enforcing `Content-Security-Policy` once violations are resolved.
+The production build emits no inline script (one external module script), so `script-src 'self'`
+holds without `'unsafe-inline'` or `'unsafe-eval'`. `'unsafe-inline'` remains only in
+`style-src`, because PrimeVue and Tailwind inject `<style>` at runtime.
 
-### Trusted Types (F-02) — staged rollout
+The policy in `deploy/Caddyfile` differs from `productionCsp()` in two places: it uses
+`default-src 'self'` instead of `'none'`, and it allows `data:` in `font-src`. Every other
+directive is the same.
 
-`productionCspReportOnly()` adds `require-trusted-types-for 'script'; trusted-types
-default`, which makes DOM script-injection sinks (`innerHTML`, `script.src`, …)
-throw unless routed through a vetted policy — closing off DOM-XSS.
+### Trusted Types, staged
 
-Because runtime compatibility (notably third-party widgets) must be observed in a
-real browser, roll it out in **Report-Only first**:
+`productionCspReportOnly()` adds `require-trusted-types-for 'script'; trusted-types default` to
+the policy above. It makes DOM script-injection sinks (`innerHTML`, `script.src`, …) throw unless
+they go through a vetted policy. Because third-party code must be observed in a real browser
+first, it is meant to be served as `Content-Security-Policy-Report-Only` next to the enforced
+policy. `npm run preview` serves both headers; exercise the app there to surface violations.
+Once clean, fold `require-trusted-types-for 'script'` into the enforced header. If a sink
+legitimately needs HTML, add a named Trusted Types policy (for example a DOMPurify-backed
+`createHTML`) rather than a pass-through default.
 
-```nginx
-# Enforce the resource policy now …
-add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https://your-admin-api-host; img-src 'self' data:; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none';" always;
-# … and OBSERVE Trusted Types violations in parallel:
-add_header Content-Security-Policy-Report-Only "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https://your-admin-api-host; img-src 'self' data:; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types default; report-uri /csp-reports;" always;
-```
+`deploy/Caddyfile` does not send the report-only header today.
 
-Run `npm run preview` (it serves both headers) and exercise the app to surface
-violations. Once clean, fold `require-trusted-types-for 'script'` into the
-enforced header; if a sink legitimately needs HTML, add a named Trusted Types
-policy (e.g. a DOMPurify-backed `createHTML`) rather than a pass-through default.
+## Caddy
 
-### Cross-Origin-Opener-Policy
-
-```nginx
-add_header Cross-Origin-Opener-Policy "same-origin" always;
-```
-
-### X-Frame-Options (F-09)
-
-```nginx
-add_header X-Frame-Options "DENY" always;
-```
-
-### Additional Recommended Headers
-
-```nginx
-add_header X-Content-Type-Options   "nosniff"                           always;
-add_header Referrer-Policy          "strict-origin-when-cross-origin"   always;
-add_header Permissions-Policy       "geolocation=(), microphone=(), camera=()" always;
-add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
-```
-
----
-
-## Complete Nginx Server Block Example
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name admin.your-domain.com;
-
-    ssl_certificate     /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    root /var/www/oauth2-admin/dist;
-    index index.html;
-
-    # Security headers
-    add_header Content-Security-Policy
-      "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https://your-admin-api-host; img-src 'self' data:; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
-      always;
-    add_header X-Frame-Options              "DENY"                              always;
-    add_header X-Content-Type-Options       "nosniff"                           always;
-    add_header Referrer-Policy              "strict-origin-when-cross-origin"   always;
-    add_header Strict-Transport-Security    "max-age=63072000; includeSubDomains; preload" always;
-    add_header Permissions-Policy           "geolocation=(), microphone=(), camera=()" always;
-
-    # SPA fallback routing
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # Cache hashed assets indefinitely
-    location ~* \.(js|css|woff2|png|svg|ico)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    # Never cache index.html
-    location = /index.html {
-        add_header Cache-Control "no-store, no-cache, must-revalidate";
-    }
-}
-```
-
----
-
-## Caddy Example
+The site block in [`deploy/Caddyfile`](../deploy/Caddyfile) sets the headers in a `header { … }`
+block, removes the `Server` header, routes the BFF paths and serves the SPA with a history-API
+fallback:
 
 ```caddy
-admin.your-domain.com {
-    root * /var/www/oauth2-admin/dist
-    file_server
+admin.example.com {
+	root * /srv/admin/dist
 
-    header {
-        Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https://your-admin-api-host; img-src 'self' data:; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
-        X-Frame-Options "DENY"
-        X-Content-Type-Options "nosniff"
-        Referrer-Policy "strict-origin-when-cross-origin"
-        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
-    }
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Content-Security-Policy "…"   # see deploy/Caddyfile
+		-Server
+	}
 
-    try_files {path} /index.html
+	@bff path /bff/* /api/admin/* /api/apps/* /api/profile /api/version /api/auth/request-password-reset /api/auth/reset-password
+	handle @bff {
+		reverse_proxy 127.0.0.1:8091 {
+			flush_interval -1
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
 }
 ```
+
+This is an outline; copy from `deploy/Caddyfile`, not from here.
+
+## Other reverse proxies
+
+If you put the SPA behind Nginx instead, set the same values with `add_header … always;` for
+each header in the table and the CSP above, keep the SPA fallback (`try_files $uri /index.html`),
+and proxy the same paths to the BFF with buffering off (`proxy_buffering off;`) so the event
+stream is not held back. The BFF trusts `X-Forwarded-For` only from a loopback peer, so the proxy
+must run on the same host and overwrite that header with the client address.
