@@ -2,7 +2,7 @@ import { defineConfig, loadEnv, version as viteVersion } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 import { readFileSync } from 'node:fs'
-import { devCsp, productionCsp, productionCspReportOnly, SECURITY_HEADERS, originOf } from './src/security/csp'
+import { devCsp, productionCsp, productionCspReportOnly, REPORTING_ENDPOINTS, SECURITY_HEADERS, originOf } from './src/security/csp'
 import { devProxy } from './src/dev/devProxy'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
@@ -67,10 +67,14 @@ export default defineConfig(({ mode }) => {
   // Preview server (`vite preview`) serves the production build under the REAL
   // production CSP + the Trusted Types Report-Only policy — the place to soak-test
   // strict CSP / Trusted Types violations before promoting them at the proxy.
+  // Reports go to /bff/csp-report, which the /bff proxy above forwards to a
+  // local BFF (preview inherits server.proxy). Chromium's Reporting API did not
+  // deliver to this plain-http origin in testing; the console still shows them.
   preview: {
     headers: {
       'Content-Security-Policy':             productionCsp(apiOrigin),
       'Content-Security-Policy-Report-Only': productionCspReportOnly(apiOrigin),
+      'Reporting-Endpoints':                 REPORTING_ENDPOINTS,
       ...SECURITY_HEADERS,
     },
   },

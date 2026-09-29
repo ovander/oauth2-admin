@@ -3,7 +3,7 @@
  *
  * These assertions are the deploy GATE (F-02): the strict production CSP must
  * stay deny-by-default with no script escape hatches, and Trusted Types must be
- * present in the Report-Only rollout policy.
+ * present in the Report-Only rollout policy, which reports to the BFF.
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -14,6 +14,9 @@ import {
   devCsp,
   SECURITY_HEADERS,
   TRUSTED_TYPES_POLICIES,
+  CSP_REPORT_PATH,
+  CSP_REPORT_GROUP,
+  REPORTING_ENDPOINTS,
   originOf,
 } from '@/security/csp'
 import { DEFAULT_POLICY_NAME } from '@/security/trustedTypes'
@@ -56,6 +59,11 @@ describe('productionCsp()', () => {
     // Note: 'unsafe-inline' is permitted ONLY under style-src, never script-src.
     expect(csp).toMatch(/style-src 'self' 'unsafe-inline'/)
   })
+
+  it('names no reporting endpoint (only the Trusted Types rollout reports, for now)', () => {
+    expect(directive(csp, 'report-uri')).toBeUndefined()
+    expect(directive(csp, 'report-to')).toBeUndefined()
+  })
 })
 
 describe('productionCspReportOnly() — Trusted Types rollout', () => {
@@ -81,6 +89,20 @@ describe('productionCspReportOnly() — Trusted Types rollout', () => {
   it('still carries the strict resource directives', () => {
     expect(ro).toContain("default-src 'none'")
     expect(ro).toContain("frame-ancestors 'none'")
+  })
+
+  it("reports to the BFF's /bff/csp-report by report-uri and by report-to", () => {
+    expect(CSP_REPORT_PATH).toBe('/bff/csp-report')
+    expect(directive(ro, 'report-uri')).toBe('report-uri /bff/csp-report')
+    expect(directive(ro, 'report-to')).toBe(`report-to ${CSP_REPORT_GROUP}`)
+    expect(ro.endsWith('; report-uri /bff/csp-report; report-to csp')).toBe(true)
+  })
+})
+
+describe('REPORTING_ENDPOINTS', () => {
+  it('defines the report-to group as the same-origin BFF endpoint', () => {
+    expect(REPORTING_ENDPOINTS).toBe('csp="/bff/csp-report"')
+    expect(REPORTING_ENDPOINTS).toBe(`${CSP_REPORT_GROUP}="${CSP_REPORT_PATH}"`)
   })
 })
 
@@ -119,10 +141,24 @@ describe('originOf()', () => {
 describe('deploy/Caddyfile mirrors csp.ts', () => {
   const caddyfile = readFileSync(resolve(process.cwd(), 'deploy/Caddyfile'), 'utf-8')
 
-  /** Value of a `Name "value"` line in the site's header block, or undefined. */
+  /** The site's `header { … }` block. */
+  const headerBlock = caddyfile.match(/\n\theader \{\n([\s\S]*?)\n\t\}/)?.[1] ?? ''
+
+  /**
+   * Value of a `Name "value"` or ``Name `value` `` line (Caddy's two quoting
+   * forms) in the site's header block, or undefined.
+   */
   function caddyHeader(name: string): string | undefined {
-    const line = caddyfile.split('\n').map(l => l.trim()).find(l => l.startsWith(`${name} "`))
-    return line?.slice(name.length + 2, -1)
+    for (const raw of headerBlock.split('\n')) {
+      const line = raw.trim()
+      if (!line.startsWith(`${name} `)) continue
+      const token = line.slice(name.length + 1)
+      const quote = token[0]
+      if ((quote === '"' || quote === '`') && token.length > 1 && token.endsWith(quote)) {
+        return token.slice(1, -1)
+      }
+    }
+    return undefined
   }
 
   it('sends productionCsp() exactly (same-origin BFF: no API origin)', () => {
@@ -133,9 +169,19 @@ describe('deploy/Caddyfile mirrors csp.ts', () => {
     expect(caddyHeader(name)).toBe(value)
   })
 
-  it('does not send the Trusted Types Report-Only header until it has a reporting endpoint', () => {
-    // docs/security-headers.md, "Trusted Types, staged": the header goes to the
-    // edge together with report-uri/report-to; update this test then.
-    expect(caddyHeader('Content-Security-Policy-Report-Only')).toBeUndefined()
+  it('sends the Trusted Types rollout policy as Report-Only, exactly productionCspReportOnly()', () => {
+    // docs/security-headers.md, "Trusted Types, staged": the header reports to
+    // the BFF's /bff/csp-report and blocks nothing.
+    expect(caddyHeader('Content-Security-Policy-Report-Only')).toBe(productionCspReportOnly())
+  })
+
+  it('sends Reporting-Endpoints, exactly REPORTING_ENDPOINTS, for the report-to group', () => {
+    expect(caddyHeader('Reporting-Endpoints')).toBe(REPORTING_ENDPOINTS)
+  })
+
+  it('routes /bff/* (so POST /bff/csp-report) to the admin BFF', () => {
+    const matcher = caddyfile.split('\n').map(l => l.trim()).find(l => l.startsWith('@bff path '))
+    expect(matcher?.split(' ')).toContain('/bff/*')
+    expect(caddyfile).toMatch(/handle @bff \{\n\t\treverse_proxy 127\.0\.0\.1:8091 /)
   })
 })

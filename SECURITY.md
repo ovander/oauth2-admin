@@ -76,6 +76,14 @@ cd bff && go vet ./... && go test -race ./... && golangci-lint run ./...
 - **Strict allowlist, never an open proxy.** `/bff/*`, `/api/admin/*`, `/api/apps/*`,
   `/api/profile`, `GET /api/version` and the two public password-reset posts; everything else is
   404. Non-canonical paths (including percent-encoded dot-segments) are refused before matching.
+- **Unauthenticated routes, each for a reason.** `GET /bff/healthz` (liveness), `/bff/login` and
+  `/bff/callback` (sign-in), `GET /bff/session` (answers `authenticated: false`),
+  `GET /api/version` (public probe), the two password-reset posts (pre-auth flows, forwarded
+  without the browser's credentials), and `POST /bff/csp-report`: browsers send CSP reports
+  without cookies and cannot add `X-CSRF-Token`, so it has neither check. It only logs (no
+  session access, no upstream, no state change), with an 8 KiB body cap, at most 10 lines per
+  request, query strings and fragments dropped from the logged URLs, and never the cookies,
+  headers or raw body.
 - **Login is bound to the browser.** `/bff/login` sets a nonce cookie stored with the pending
   state; `/bff/callback` completes only for the browser that presents it (login-CSRF and
   session-swap defence). State is single-use.
@@ -94,9 +102,10 @@ cd bff && go vet ./... && go test -race ./... && golangci-lint run ./...
   (`X-Real-IP`, `True-Client-IP`, `Forwarded`) are stripped so the issuer only trusts
   `X-Forwarded-For` from its loopback proxies. Public pre-auth posts are forwarded without the
   session cookie or any `Authorization` header.
-- **Per-IP budgets** on `/bff/login`, `/bff/elevate` and the two public password-reset posts
-  (`/api/auth/request-password-reset`, `/api/auth/reset-password`), which trigger email; a
-  zero, negative or invalid setting falls back to the default, never to "no limit".
+- **Per-IP budgets** on `/bff/login`, `/bff/elevate`, the two public password-reset posts
+  (`/api/auth/request-password-reset`, `/api/auth/reset-password`), which trigger email, and
+  `POST /bff/csp-report` (`BFF_CSP_REPORT_RATE`, default 30 a minute; over budget the body is
+  not read); a zero, negative or invalid setting falls back to the default, never to "no limit".
   `X-Forwarded-For` is honoured only when the TCP peer is loopback (Caddy), which replaces any
   client-supplied value.
 - **Logout revokes** the refresh and access tokens at the issuer (RFC 7009) before dropping the
@@ -133,9 +142,11 @@ See [deploy/README.md](deploy/README.md) for the Caddy site, systemd unit and sc
 - Caddy is the only public listener; the BFF binds `127.0.0.1:8091` and the admin API stays on
   loopback. Do not set Caddy `trusted_proxies` unless a further proxy sits in front of it.
 - Caddy delivers the security headers from `src/security/csp.ts`
-  (`Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  (`Content-Security-Policy`, the Trusted Types `Content-Security-Policy-Report-Only` and its
+  `Reporting-Endpoints`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`) plus HSTS.
-  The Caddyfile sends `productionCsp()` verbatim, and `csp.spec.ts` fails if it drifts;
+  The Caddyfile sends `productionCsp()` and `productionCspReportOnly()` verbatim, and
+  `csp.spec.ts` fails if they drift;
   [docs/security-headers.md](docs/security-headers.md) lists the headers.
 - `/srv/admin/dist` is **root-owned, 0644/0755**: Caddy only reads it, and the BFF service user
   must not be able to modify the JavaScript served to admins.

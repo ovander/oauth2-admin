@@ -31,6 +31,7 @@ type app struct {
 	loginLimiter         *rateLimiter // per-IP budget for /bff/login
 	elevateLimiter       *rateLimiter // per-IP budget for /bff/elevate
 	passwordResetLimiter *rateLimiter // per-IP budget for the issuer's pre-auth password-reset posts
+	cspReportLimiter     *rateLimiter // per-IP budget for POST /bff/csp-report
 }
 
 func newApp(cfg *Config) *app {
@@ -38,6 +39,7 @@ func newApp(cfg *Config) *app {
 		cfg:                  cfg,
 		adminProxy:           bff.NewSingleHostProxy(cfg.AdminUpstream),
 		passwordResetLimiter: newRateLimiter(cfg.PasswordResetRate, rateWindow),
+		cspReportLimiter:     newRateLimiter(cfg.CSPReportRate, rateWindow),
 	}
 	// The issuer proxy also serves the public pass-through routes (P3-23), so
 	// it exists in both phases whenever an issuer upstream is configured
@@ -70,6 +72,12 @@ func newApp(cfg *Config) *app {
 func (a *app) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /bff/healthz", handleHealthz)
+	// CSP violation reports: no session and no CSRF token, because browsers
+	// send reports without cookies or custom headers. Safe because the handler
+	// only logs (no session access, no upstream, no state change); see
+	// cspreport.go. Registered without a method so any method other than POST
+	// gets 405 rather than falling through to the 404 catch-all.
+	mux.HandleFunc("/bff/csp-report", a.handleCSPReport)
 
 	if a.store != nil {
 		mux.HandleFunc("GET /bff/login", a.handleLogin)
@@ -141,6 +149,7 @@ func (a *app) startBackground(ctx context.Context) {
 				a.loginLimiter.sweep()
 				a.elevateLimiter.sweep()
 				a.passwordResetLimiter.sweep()
+				a.cspReportLimiter.sweep()
 			}
 		}
 	}()
