@@ -137,6 +137,7 @@ export default defineConfig(({ mode }) => {
         'src/services/session.ts',
         'src/services/adminGuards.ts',
         'src/security/csp.ts',
+        'src/security/trustedTypes.ts',
         'src/stores/authStore.ts',
         'src/composables/useClipboard.ts',
         'src/composables/useSessionTimeout.ts',

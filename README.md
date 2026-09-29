@@ -236,7 +236,8 @@ src/
 ├── router/
 │   └── router.ts                 # routes and guards (auth, forced password change, superadmin)
 ├── security/
-│   └── csp.ts                    # canonical CSP, Trusted Types policy and hardening headers
+│   ├── csp.ts                    # canonical CSP, Trusted Types policy and hardening headers
+│   └── trustedTypes.ts           # the app's rejecting Trusted Types `default` policy
 ├── services/
 │   ├── api.ts                    # same-origin Axios instance: cookie, CSRF, 401 handling
 │   ├── session.ts                # /bff/* client and CSRF store

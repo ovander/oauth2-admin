@@ -121,7 +121,8 @@ cd bff && go vet ./... && go test -race ./... && golangci-lint run ./...
   production builds.
 - **Idle sign-out:** after 15 minutes without activity the console warns, then signs out.
 - **No XSS sinks** (no `v-html`, `innerHTML`, `eval`, `document.write`), with the ESLint gate
-  preventing regressions; **canonical, tested CSP + Trusted Types** (`src/security/csp.ts`);
+  preventing regressions; **canonical, tested CSP + Trusted Types** (`src/security/csp.ts`, and
+  a rejecting `default` policy in `src/security/trustedTypes.ts`);
   **open-redirect protection** on post-login return paths; **no source maps** in production;
   **self-hosted fonts**.
 

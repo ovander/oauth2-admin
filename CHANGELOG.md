@@ -41,6 +41,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
   were unneeded. `csp.spec.ts` now fails if the Caddyfile's CSP or hardening headers drift from
   `csp.ts`. Deploy: re-run `bootstrap.sh` on the host (`push.sh` does not ship the Caddyfile)
   and reload Caddy.
+- The Trusted Types rollout policy (`productionCspReportOnly()`) is now
+  `require-trusted-types-for 'script'; trusted-types vue default`: `trusted-types default` refused
+  Vue's `vue` policy, so every page reported a violation and, enforced, rendered blank. The app
+  now creates the `default` policy itself (`src/security/trustedTypes.ts`); it lets only the
+  empty string through (PrimeVue's tooltip `innerHTML = ''`) and rejects everything else. Built
+  app in Chromium, 21 routes, Report-Only and enforced: no violation. The Report-Only header
+  stays off the edge until the BFF has a report endpoint (`docs/security-headers.md`). Deploy:
+  the SPA only; the Caddyfile is unchanged.
 
 ### Fixed
 
