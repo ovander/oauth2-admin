@@ -22,6 +22,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
   `BFF_CSP_REPORT_RATE` in `/etc/socrate/admin-bff.env`), then the two header lines in the Caddy
   site and a reload.
 
+### Changed
+
+- Build and CI toolchain: Node.js 20 (end of life since 2026-04-30) → Node.js 24 LTS; `.nvmrc` and `engines` pin it.
+
 ## [1.0.0] - 2026-09-29
 
 First tagged release of the Socrate admin console: a Vue 3 superadmin portal with a Go
