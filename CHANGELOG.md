@@ -30,6 +30,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ### Fixed
 
+- The version store read `git_commit` and `build_date` from Socrate's `GET /api/version`, which
+  returns `version`, `commit`, `branch` and `build_time`, so `useVersionInfo().backendCommit` and
+  `backendDate` were always `…`. The store and composable now read the server's field names, with a
+  unit test on a realistic body. Stale-tab detection (keyed on `version`) is unchanged.
 - The README declared an MIT licence with no licence file; the project is Apache-2.0.
 
 Changes before this changelog was introduced are in the git history.

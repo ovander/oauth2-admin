@@ -1,9 +1,14 @@
 import { defineStore } from 'pinia'
 
+/**
+ * Body of Socrate's GET /api/version (go-oauth2 HealthHandler.Version).
+ * Field names are the server's JSON keys; build_time is RFC 3339 UTC.
+ */
 export interface BackendVersion {
   version:    string
-  build_date: string
-  git_commit: string
+  commit:     string
+  branch:     string
+  build_time: string
 }
 
 export const useVersionStore = defineStore('version', {
