@@ -6,6 +6,8 @@
  * present in the Report-Only rollout policy.
  */
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
   productionCsp,
   productionCspReportOnly,
@@ -95,5 +97,25 @@ describe('originOf()', () => {
   it('returns undefined for empty or unparseable input', () => {
     expect(originOf(undefined)).toBeUndefined()
     expect(originOf('not a url')).toBeUndefined()
+  })
+})
+
+// deploy/Caddyfile is the deployed edge: it must serve the canonical policy
+// verbatim, not a relaxed copy (CLAUDE.md: csp.ts and deploy/ change together).
+describe('deploy/Caddyfile mirrors csp.ts', () => {
+  const caddyfile = readFileSync(resolve(process.cwd(), 'deploy/Caddyfile'), 'utf-8')
+
+  /** Value of a `Name "value"` line in the site's header block, or undefined. */
+  function caddyHeader(name: string): string | undefined {
+    const line = caddyfile.split('\n').map(l => l.trim()).find(l => l.startsWith(`${name} "`))
+    return line?.slice(name.length + 2, -1)
+  }
+
+  it('sends productionCsp() exactly (same-origin BFF: no API origin)', () => {
+    expect(caddyHeader('Content-Security-Policy')).toBe(productionCsp())
+  })
+
+  it.each(Object.entries(SECURITY_HEADERS))('sends %s: %s', (name, value) => {
+    expect(caddyHeader(name)).toBe(value)
   })
 })

@@ -17,10 +17,10 @@ admin.vandermoten.eu {
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "geolocation=(), microphone=(), camera=()"
 		Cross-Origin-Opener-Policy "same-origin"
-		# CSP — same-origin app (the BFF makes it all first-party). Mirrors the
-		# repo's canonical policy (src/security/csp.ts), relaxed to default-src
-		# 'self' for the cookie/BFF model.
-		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+		# CSP — exactly productionCsp() from src/security/csp.ts (the canonical,
+		# unit-tested policy; csp.spec.ts fails if this line drifts from it).
+		# Same-origin app: the BFF makes every call first-party.
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
 		# Don't advertise the server
 		-Server
 	}
