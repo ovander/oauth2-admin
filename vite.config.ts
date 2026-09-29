@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig, loadEnv, version as viteVersion } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 import { readFileSync } from 'node:fs'
@@ -21,10 +21,14 @@ export default defineConfig(({ mode }) => {
     base: env.VITE_BASE || '/',
 
   // Inject frontend version as compile-time constants (tree-shaken in prod).
-  // APP_BUILD_DATE is the ISO timestamp of the build machine at bundle time.
+  // APP_BUILD_DATE is the ISO timestamp of the build machine at bundle time;
+  // APP_BUILD_NODE / APP_BUILD_VITE are the Node.js (e.g. "v20.18.0") and Vite
+  // (e.g. "6.4.3") versions that ran the build.
   define: {
     APP_VERSION:    JSON.stringify(pkg.version),
     APP_BUILD_DATE: JSON.stringify(new Date().toISOString()),
+    APP_BUILD_NODE: JSON.stringify(process.version),
+    APP_BUILD_VITE: JSON.stringify(viteVersion),
   },
 
   plugins: [vue()],

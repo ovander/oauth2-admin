@@ -8,6 +8,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ### Added
 
+- **Build toolchains in the version badge**: a plain-text tooltip (`title` and `aria-label`) shows
+  the console's version, build date, Node.js and Vite versions, and the server's version, commit,
+  branch, `build_time` and `go_version` (optional: servers up to v1.4.0 do not send it), without a
+  doubled `v` for a server version that already starts with `v`.
 - **Apache-2.0 licence** (`LICENSE`, and `license` in `package.json`) and the contributor kit:
   `CONTRIBUTING.md`, `CLAUDE.md`, `CODEOWNERS`, issue forms, a pull-request template and this
   changelog.
