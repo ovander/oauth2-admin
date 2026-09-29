@@ -31,6 +31,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ### Fixed
 
+- The version store read `git_commit` and `build_date` from Socrate's `GET /api/version`, which
+  returns `version`, `commit`, `branch` and `build_time`, so `useVersionInfo().backendCommit` and
+  `backendDate` were always `…`. The store and composable now read the server's field names, with a
+  unit test on a realistic body. Stale-tab detection (keyed on `version`) is unchanged.
 - The README declared an MIT licence with no licence file; the project is Apache-2.0.
 - The BFF now reads `BFF_PASSWORD_RESET_RATE` (default 5 per minute). It was declared but never
   loaded, so the two public password-reset posts had no per-IP budget despite the value in the
