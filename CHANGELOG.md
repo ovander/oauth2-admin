@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-29
+
+First tagged release of the Socrate admin console: a Vue 3 superadmin portal with a Go
+Backend-for-Frontend that keeps every token server-side. It ships under Apache-2.0, with the
+canonical Content Security Policy enforced at Caddy, the Trusted Types rollout staged
+(report-only), per-IP budgets on the public password-reset posts, and the version badge showing
+the console and server builds with their toolchains. Requires Socrate v1.4.0 or later (v1.5.0 for
+the server toolchain in the badge).
+
 ### Added
 
 - **Build toolchains in the version badge**: a plain-text tooltip (`title` and `aria-label`) shows
@@ -68,4 +77,5 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 Changes before this changelog was introduced are in the git history.
 
-[Unreleased]: https://github.com/ovander/oauth2-admin/commits/main
+[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/ovander/oauth2-admin/releases/tag/v1.0.0
