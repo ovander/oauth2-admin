@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-29
+
+Minor release. The BFF attributes its own Socrate calls (sign-in, refresh, sign-out, step-up) to
+the browser, so Socrate audits and rate-limits the user's IP and User-Agent rather than the BFF,
+and no longer forwards a client-supplied `X-Forwarded-For`; it gains a CSP report endpoint for
+the Trusted Types Report-Only policy; builds move to Node.js 24. Requires backendkit v1.15.0.
+Deploy: the BFF first, then two header lines in the Caddy site (see *Added* below). Works with
+Socrate v1.5.0 and later.
+
 ### Security
 
 - **Browser attribution toward Socrate, and no forged `X-Forwarded-For` through the proxy.** The
@@ -110,5 +119,6 @@ the server toolchain in the badge).
 
 Changes before this changelog was introduced are in the git history.
 
-[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/ovander/oauth2-admin/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ovander/oauth2-admin/releases/tag/v1.0.0
