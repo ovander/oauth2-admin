@@ -22,3 +22,7 @@ interface ImportMeta {
 // Injected by vite.config.ts define block at build time
 declare const APP_VERSION:    string
 declare const APP_BUILD_DATE: string
+// Toolchain that built the console: Node.js (`process.version`, e.g. "v20.18.0")
+// and Vite (e.g. "6.4.3").
+declare const APP_BUILD_NODE: string
+declare const APP_BUILD_VITE: string

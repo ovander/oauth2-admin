@@ -9,6 +9,11 @@ export interface BackendVersion {
   commit:     string
   branch:     string
   build_time: string
+  /**
+   * Go toolchain that built the server (`runtime.Version()`, e.g. "go1.27.1").
+   * Added in Socrate after v1.4.0; absent on older servers.
+   */
+  go_version?: string
 }
 
 export const useVersionStore = defineStore('version', {
@@ -21,6 +26,10 @@ export const useVersionStore = defineStore('version', {
     // Compile-time constants injected by vite.config.ts — see env.d.ts
     clientVersion:    (): string => APP_VERSION,
     clientBuildDate:  (): string => APP_BUILD_DATE,
+    clientBuildNode:  (): string => APP_BUILD_NODE,
+    clientBuildVite:  (): string => APP_BUILD_VITE,
+    /** Toolchain that built the console, e.g. "Node v20.18.0 · Vite 6.4.3". */
+    clientToolchain:  (): string => `Node ${APP_BUILD_NODE} · Vite ${APP_BUILD_VITE}`,
   },
 
   actions: {
