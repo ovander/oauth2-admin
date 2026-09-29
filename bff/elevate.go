@@ -146,6 +146,8 @@ func (c *oauthClient) elevate(ctx context.Context, adminUpstream *url.URL, beare
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+bearer)
+	// A password check for the browser: attribute it (see attribution.go).
+	socrate.ApplyClientAttribution(req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {

@@ -111,6 +111,8 @@ func (c *oauthClient) postForm(ctx context.Context, form url.Values) (*tokenResp
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
+	// Attribute the call to the browser it is made for (see attribution.go).
+	socrate.ApplyClientAttribution(req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -177,6 +179,8 @@ func (c *oauthClient) revoke(ctx context.Context, token, tokenTypeHint string) e
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
+	// Attribute the call to the browser it is made for (see attribution.go).
+	socrate.ApplyClientAttribution(req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {

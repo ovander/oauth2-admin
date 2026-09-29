@@ -37,7 +37,7 @@ type app struct {
 func newApp(cfg *Config) *app {
 	a := &app{
 		cfg:                  cfg,
-		adminProxy:           bff.NewSingleHostProxy(cfg.AdminUpstream),
+		adminProxy:           attributedProxy(bff.NewSingleHostProxy(cfg.AdminUpstream)),
 		passwordResetLimiter: newRateLimiter(cfg.PasswordResetRate, rateWindow),
 		cspReportLimiter:     newRateLimiter(cfg.CSPReportRate, rateWindow),
 	}
@@ -45,7 +45,7 @@ func newApp(cfg *Config) *app {
 	// it exists in both phases whenever an issuer upstream is configured
 	// (LoadConfig always sets one; only bare test configs leave it nil).
 	if cfg.OAuthUpstream != nil {
-		a.issuerProxy = bff.NewSingleHostProxy(cfg.OAuthUpstream)
+		a.issuerProxy = attributedProxy(bff.NewSingleHostProxy(cfg.OAuthUpstream))
 	}
 	if cfg.Phase2Enabled() {
 		a.store = bff.NewMemoryStore(cfg.SessionIdle, cfg.SessionAbsolute)
@@ -117,7 +117,9 @@ func (a *app) handler() http.Handler {
 
 	// Allowlist: everything else is 404 — never an open proxy.
 	mux.HandleFunc("/", http.NotFound)
-	return canonicalPathOnly(mux)
+	// Outermost: every Socrate call made for this request (login exchange,
+	// refresh, revoke, step-up, proxied calls) is attributed to the browser.
+	return withClientAttribution(canonicalPathOnly(mux))
 }
 
 // handlePublicIssuerPost forwards a pre-auth issuer POST. These endpoints are
