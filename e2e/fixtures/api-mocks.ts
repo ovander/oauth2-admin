@@ -8,6 +8,7 @@
  * The SPA bootstraps auth on every cold navigation via:
  *   • GET  /bff/session          → { authenticated, user?, csrf? }   (same-origin)
  *   • GET  /api/admin/profile    → the admin User (role drives RBAC) (admin API)
+ *   • GET  /api/version          → the server version (fetched on every page load)
  * and starts login with a full-page navigation to:
  *   • GET  /bff/login[?return_to=…]  (server-side OAuth — never completed here)
  *
@@ -46,6 +47,17 @@ function buildProfile(role: string) {
   }
 }
 
+/**
+ * `GET /api/version`, which main.ts fetches on every page load. The dev server
+ * forwards it to the BFF (as Caddy does), so it is mocked here to keep the
+ * tests off the network; the authenticated helper's catch-all covers it too.
+ */
+async function mockVersion(page: Page) {
+  await page.route('**/api/version*', route =>
+    json(route, { version: 'e2e', build_date: '2024-01-01T00:00:00Z', git_commit: 'e2e' }),
+  )
+}
+
 // ─── Session bootstrap ──────────────────────────────────────────────────────────
 
 /**
@@ -53,6 +65,7 @@ function buildProfile(role: string) {
  * redirects protected routes to /auth/login and never fetches the profile.
  */
 export async function mockUnauthenticatedSession(page: Page) {
+  await mockVersion(page)
   await page.route('**/bff/session', route => json(route, { authenticated: false }))
 }
 
@@ -109,6 +122,7 @@ export async function mockBffLogin(page: Page) {
 export async function mockMustChangePassword(page: Page) {
   const state = { changed: false }
 
+  await mockVersion(page)
   await page.route('**/bff/session', route =>
     json(
       route,

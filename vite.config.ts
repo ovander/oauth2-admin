@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { devCsp, productionCsp, productionCspReportOnly, SECURITY_HEADERS, originOf } from './src/security/csp'
+import { devProxy } from './src/dev/devProxy'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
@@ -40,8 +41,8 @@ export default defineConfig(({ mode }) => {
   },
 
   // Development server — proxy eliminates CORS entirely in dev.
-  // The browser always talks to localhost:5173; Vite forwards /api/* to
-  // the Go backend server-side (no preflight, no CORS headers needed).
+  // The browser always talks to localhost:5173; Vite forwards the BFF paths to
+  // the local BFF server-side (no preflight, no CORS headers needed).
   server: {
     port: 5173,
     strictPort: true,   // fail fast instead of silently drifting to 5174
@@ -55,32 +56,8 @@ export default defineConfig(({ mode }) => {
       ...SECURITY_HEADERS,
     },
 
-    proxy: {
-      // BFF control plane + admin API → the local BFF (:8091), which mints the
-      // session cookie and injects the bearer. Mirrors the production topology
-      // (browser → BFF → backend). Listed BEFORE the issuer routes.
-      '^/bff': {
-        target:       'http://localhost:8091',
-        changeOrigin: true,
-      },
-      '^/api/admin': {
-        target:       'http://localhost:8091',
-        changeOrigin: true,
-      },
-      // Public, pre-auth issuer flows the BFF does not proxy → issuer (:8080).
-      '^/api/auth': {
-        target:       'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '^/api/profile': {
-        target:       'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '^/oauth': {
-        target:       'http://localhost:8080',
-        changeOrigin: true,
-      },
-    },
+    // Same paths to the BFF as production (deploy/Caddyfile); see src/dev/devProxy.ts.
+    proxy: devProxy(),
   },
 
   // Preview server (`vite preview`) serves the production build under the REAL
