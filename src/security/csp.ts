@@ -46,6 +46,19 @@ export function productionCsp(apiOrigin?: string): string {
 }
 
 /**
+ * Trusted Types policy names the built app may create, nothing more:
+ * - `vue`: created by Vue's runtime-dom for compiled static template content.
+ *   It does not sanitise, and v-html / innerHTML props would also go through it:
+ *   the ESLint gate that bans them is what keeps that path closed.
+ * - `default`: created by the app itself (src/security/trustedTypes.ts). It
+ *   rejects every value except the empty string, which PrimeVue's Tooltip
+ *   assigns to `innerHTML`; it is never a pass-through.
+ * No `'allow-duplicates'`: each name can be created once, and main.ts claims
+ * `default` at start-up.
+ */
+export const TRUSTED_TYPES_POLICIES: readonly string[] = ['vue', 'default']
+
+/**
  * Production CSP + Trusted Types, for the staged rollout. Serve as
  * `Content-Security-Policy-Report-Only` first so `require-trusted-types-for`
  * violations are reported without breaking the app; once staging is clean, fold
@@ -54,7 +67,7 @@ export function productionCsp(apiOrigin?: string): string {
 export function productionCspReportOnly(apiOrigin?: string): string {
   const directives = strictDirectives(apiOrigin)
   directives['require-trusted-types-for'] = ["'script'"]
-  directives['trusted-types'] = ['default']
+  directives['trusted-types'] = [...TRUSTED_TYPES_POLICIES]
   return serialize(directives)
 }
 

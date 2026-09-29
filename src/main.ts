@@ -10,11 +10,16 @@ import Ripple from 'primevue/ripple'
 import App from './App.vue'
 import router from './router/router'
 import { useVersionStore } from '@/stores/version'
+import { installDefaultTrustedTypesPolicy } from '@/security/trustedTypes'
 
 // Styles
 import 'primeicons/primeicons.css'
 import './assets/fonts.css'
 import './assets/tailwind.css'
+
+// Trusted Types: claim the rejecting `default` policy before anything renders
+// (src/security/trustedTypes.ts; the CSP allows only `vue` and `default`).
+installDefaultTrustedTypesPolicy()
 
 const app = createApp(App)
 

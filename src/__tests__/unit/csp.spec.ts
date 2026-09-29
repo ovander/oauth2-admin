@@ -13,8 +13,10 @@ import {
   productionCspReportOnly,
   devCsp,
   SECURITY_HEADERS,
+  TRUSTED_TYPES_POLICIES,
   originOf,
 } from '@/security/csp'
+import { DEFAULT_POLICY_NAME } from '@/security/trustedTypes'
 
 /** Pull a single directive (e.g. "script-src 'self'") out of a CSP string. */
 function directive(csp: string, name: string): string | undefined {
@@ -61,7 +63,19 @@ describe('productionCspReportOnly() — Trusted Types rollout', () => {
 
   it('adds Trusted Types enforcement directives', () => {
     expect(ro).toContain("require-trusted-types-for 'script'")
-    expect(ro).toContain('trusted-types default')
+  })
+
+  it("allows exactly Vue's `vue` policy and the app's own `default` policy", () => {
+    // `trusted-types default` alone refused Vue's policy, so every page reported
+    // a violation and, enforced, Vue's static-content innerHTML threw.
+    expect(directive(ro, 'trusted-types')).toBe('trusted-types vue default')
+    expect(TRUSTED_TYPES_POLICIES).toEqual(['vue', 'default'])
+    expect(TRUSTED_TYPES_POLICIES).toContain(DEFAULT_POLICY_NAME)
+  })
+
+  it('never allows duplicate or wildcard policy names', () => {
+    expect(ro).not.toContain("'allow-duplicates'")
+    expect(directive(ro, 'trusted-types')).not.toMatch(/\*|'none'/)
   })
 
   it('still carries the strict resource directives', () => {
@@ -117,5 +131,11 @@ describe('deploy/Caddyfile mirrors csp.ts', () => {
 
   it.each(Object.entries(SECURITY_HEADERS))('sends %s: %s', (name, value) => {
     expect(caddyHeader(name)).toBe(value)
+  })
+
+  it('does not send the Trusted Types Report-Only header until it has a reporting endpoint', () => {
+    // docs/security-headers.md, "Trusted Types, staged": the header goes to the
+    // edge together with report-uri/report-to; update this test then.
+    expect(caddyHeader('Content-Security-Policy-Report-Only')).toBeUndefined()
   })
 })
