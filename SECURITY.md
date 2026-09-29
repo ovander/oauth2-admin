@@ -94,8 +94,11 @@ cd bff && go vet ./... && go test -race ./... && golangci-lint run ./...
   (`X-Real-IP`, `True-Client-IP`, `Forwarded`) are stripped so the issuer only trusts
   `X-Forwarded-For` from its loopback proxies. Public pre-auth posts are forwarded without the
   session cookie or any `Authorization` header.
-- **Per-IP budgets** on `/bff/login` and `/bff/elevate`. `X-Forwarded-For` is honoured only
-  when the TCP peer is loopback (Caddy), which replaces any client-supplied value.
+- **Per-IP budgets** on `/bff/login`, `/bff/elevate` and the two public password-reset posts
+  (`/api/auth/request-password-reset`, `/api/auth/reset-password`), which trigger email; a
+  zero, negative or invalid setting falls back to the default, never to "no limit".
+  `X-Forwarded-For` is honoured only when the TCP peer is loopback (Caddy), which replaces any
+  client-supplied value.
 - **Logout revokes** the refresh and access tokens at the issuer (RFC 7009) before dropping the
   session and clearing the cookie.
 

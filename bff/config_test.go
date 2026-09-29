@@ -21,6 +21,9 @@ func phase2Env(t *testing.T) {
 	t.Setenv("BFF_SESSION_ABSOLUTE", "")
 	t.Setenv("BFF_PHASE1_PASSTHROUGH", "")
 	t.Setenv("BFF_ALLOW_PASSTHROUGH", "")
+	t.Setenv("BFF_LOGIN_RATE", "")
+	t.Setenv("BFF_ELEVATE_RATE", "")
+	t.Setenv("BFF_PASSWORD_RESET_RATE", "")
 }
 
 func TestLoadConfigDefaults(t *testing.T) {
@@ -142,5 +145,45 @@ func TestLoadConfigAllowPassthroughIsWarned(t *testing.T) {
 	}
 	if w := cfg.Warnings(); len(w) != 1 || !strings.Contains(w[0], "BFF_ALLOW_PASSTHROUGH") {
 		t.Errorf("AllowPassthrough must be surfaced as a warning, got %v", w)
+	}
+}
+
+// The per-IP budgets are read from the environment, and a value that would
+// switch a limiter off (zero, negative) or that cannot be parsed falls back to
+// the default: a budget is never disabled from the environment. Before the
+// fix, BFF_PASSWORD_RESET_RATE was never read and the budget was always 0.
+func TestLoadConfigRateBudgets(t *testing.T) {
+	budgets := []struct {
+		key string
+		def int
+		get func(*Config) int
+	}{
+		{"BFF_PASSWORD_RESET_RATE", 5, func(c *Config) int { return c.PasswordResetRate }},
+		{"BFF_LOGIN_RATE", 10, func(c *Config) int { return c.LoginRate }},
+		{"BFF_ELEVATE_RATE", 5, func(c *Config) int { return c.ElevateRate }},
+	}
+	for _, b := range budgets {
+		for _, c := range []struct {
+			val  string
+			want int
+		}{
+			{"", b.def},     // unset: the default
+			{"3", 3},        // explicit override is honoured
+			{"0", b.def},    // zero would disable the limiter: default
+			{"-1", b.def},   // negative would disable the limiter: default
+			{"five", b.def}, // unparsable: default
+		} {
+			t.Run(b.key+"="+c.val, func(t *testing.T) {
+				phase2Env(t)
+				t.Setenv(b.key, c.val)
+				cfg, err := LoadConfig()
+				if err != nil {
+					t.Fatalf("LoadConfig: %v", err)
+				}
+				if got := b.get(cfg); got != c.want {
+					t.Errorf("%s=%q: got %d, want %d", b.key, c.val, got, c.want)
+				}
+			})
+		}
 	}
 }

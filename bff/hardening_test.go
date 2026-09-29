@@ -341,3 +341,53 @@ func TestPublicIssuerRoutes(t *testing.T) {
 		t.Fatalf("4th password-reset post from one IP = %d, want 429", last)
 	}
 }
+
+// The password-reset budget must hold on the production path: an app built
+// from LoadConfig output, with BFF_PASSWORD_RESET_RATE unset, rate-limits the
+// two mail-triggering posts per IP (shared budget, default 5 per minute).
+// TestPublicIssuerRoutes sets the Config field by hand and so could not catch
+// LoadConfig ignoring the variable.
+func TestPublicIssuerRoutes_ResetBudgetFromLoadConfig(t *testing.T) {
+	issuer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer issuer.Close()
+	admin := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		t.Errorf("admin upstream reached for %s", r.URL.Path)
+	}))
+	defer admin.Close()
+
+	phase2Env(t)
+	t.Setenv("BFF_ADMIN_UPSTREAM", admin.URL)
+	t.Setenv("BFF_OAUTH_UPSTREAM", issuer.URL)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	h := NewServer(cfg)
+
+	post := func(path, ip string) int {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"email":"a@example.com"}`))
+		req.RemoteAddr = "127.0.0.1:5000" // Caddy on loopback: X-Forwarded-For is the client
+		req.Header.Set("X-Forwarded-For", ip)
+		h.ServeHTTP(rr, req)
+		return rr.Code
+	}
+	paths := []string{"/api/auth/request-password-reset", "/api/auth/reset-password"}
+	for i := 1; i <= 5; i++ {
+		p := paths[i%2]
+		if code := post(p, "203.0.113.10"); code != http.StatusOK {
+			t.Fatalf("post %d (%s) from one IP = %d, want 200", i, p, code)
+		}
+	}
+	for _, p := range paths {
+		if code := post(p, "203.0.113.10"); code != http.StatusTooManyRequests {
+			t.Fatalf("6th+ post (%s) from one IP within the window = %d, want 429", p, code)
+		}
+	}
+	if code := post(paths[0], "203.0.113.11"); code != http.StatusOK {
+		t.Fatalf("post from another IP = %d, want 200", code)
+	}
+}

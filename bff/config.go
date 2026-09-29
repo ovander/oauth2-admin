@@ -31,12 +31,15 @@ type Config struct {
 
 	// Per-IP request budgets (per rateWindow) for the credential-bearing
 	// endpoints. LoginRate guards /bff/login (login-state flooding); ElevateRate
-	// guards /bff/elevate (password + MFA brute force). A value <= 0 falls back
-	// to the default.
+	// guards /bff/elevate (password + MFA brute force). LoadConfig reads each
+	// from its BFF_*_RATE variable; an unset, zero, negative or unparsable value
+	// falls back to the default, so a budget can never be switched off from the
+	// environment.
 	LoginRate   int
 	ElevateRate int
-	// PasswordResetRate guards the two public issuer password-reset posts the
-	// BFF forwards (P3-23); both trigger email, so the budget is small.
+	// PasswordResetRate (BFF_PASSWORD_RESET_RATE, default 5) guards the two
+	// public issuer password-reset posts the BFF forwards (P3-23); both trigger
+	// email, so the budget is small.
 	PasswordResetRate int
 
 	// AllowPassthrough, when true, restores the legacy dual-mode behaviour where
@@ -75,6 +78,9 @@ func getDuration(key string, def time.Duration) (time.Duration, error) {
 	return d, nil
 }
 
+// getInt reads a positive integer from key. An unset, unparsable, zero or
+// negative value yields def, so callers that pass a positive default always
+// get a positive result.
 func getInt(key string, def int) int {
 	v := os.Getenv(key)
 	if v == "" {
@@ -114,6 +120,7 @@ func LoadConfig() (*Config, error) {
 		Phase1Passthrough: getBool("BFF_PHASE1_PASSTHROUGH", false),
 		LoginRate:         getInt("BFF_LOGIN_RATE", 10),
 		ElevateRate:       getInt("BFF_ELEVATE_RATE", 5),
+		PasswordResetRate: getInt("BFF_PASSWORD_RESET_RATE", 5),
 	}
 	if cfg.ListenAddr == "" {
 		return nil, fmt.Errorf("BFF_LISTEN_ADDR must not be empty")

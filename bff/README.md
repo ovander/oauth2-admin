@@ -43,12 +43,14 @@ where the file lives at `/etc/socrate/admin-bff.env`.
 | `BFF_COOKIE_SECURE` | Secure cookie with the `__Host-` prefix. `false` is refused with an `https://` public origin; use it only for local development over http. | `true` |
 | `BFF_LOGIN_RATE` | Per-IP budget per minute on `/bff/login`. | `10` |
 | `BFF_ELEVATE_RATE` | Per-IP budget per minute on `/bff/elevate`. | `5` |
+| `BFF_PASSWORD_RESET_RATE` | Per-IP budget per minute shared by the two public password-reset posts (`/api/auth/request-password-reset`, `/api/auth/reset-password`), which trigger email. | `5` |
 | `BFF_ALLOW_PASSTHROUGH` | Migration only: forward a request without a session with its own `Authorization` header and no CSRF check. Logged as a warning. | `false` |
 | `BFF_PHASE1_PASSTHROUGH` | Migration only: run with no sessions at all; see below. Logged as a warning. | `false` |
 
 `LoadConfig` (`config.go`) refuses to start when `BFF_CLIENT_ID` is set without
 `BFF_CLIENT_SECRET`, with an empty public URL or origin, with `BFF_COOKIE_SECURE=false` on an
-`https://` origin, or with a non-positive session lifetime.
+`https://` origin, or with a non-positive session lifetime. A zero, negative or unparsable
+`BFF_*_RATE` value falls back to the default, so a per-IP budget cannot be switched off.
 
 ## Routes
 
