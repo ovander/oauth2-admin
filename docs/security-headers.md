@@ -41,9 +41,12 @@ The production build emits no inline script (one external module script), so `sc
 holds without `'unsafe-inline'` or `'unsafe-eval'`. `'unsafe-inline'` remains only in
 `style-src`, because PrimeVue and Tailwind inject `<style>` at runtime.
 
-The policy in `deploy/Caddyfile` differs from `productionCsp()` in two places: it uses
-`default-src 'self'` instead of `'none'`, and it allows `data:` in `font-src`. Every other
-directive is the same.
+`deploy/Caddyfile` sends this policy verbatim; `csp.spec.ts` fails if its
+`Content-Security-Policy` line, or one of the hardening headers, drifts from `csp.ts`. The
+built app needs nothing more: loaded under this policy in Chromium (sign-in, password reset,
+dashboard, applications, users, security, access policy, logs with a CSV export, settings), it
+reports no violation, and the PrimeIcons font loads from `/assets/` (the build emits no `data:`
+font).
 
 ### Trusted Types, staged
 
@@ -56,7 +59,12 @@ Once clean, fold `require-trusted-types-for 'script'` into the enforced header. 
 legitimately needs HTML, add a named Trusted Types policy (for example a DOMPurify-backed
 `createHTML`) rather than a pass-through default.
 
-`deploy/Caddyfile` does not send the report-only header today.
+`deploy/Caddyfile` does not send the report-only header yet. Under `npm run preview` every page
+reports one Trusted Types violation: Vue creates a Trusted Types policy named `vue`, which
+`trusted-types default` does not allow. Enforced as they stand, these directives break every
+page (Vue's static-content `innerHTML` then throws), and the policy has no reporting endpoint, so
+at the edge the header would only add console noise. The policy first needs to allow `vue` and
+to name a reporting endpoint; that is a change of its own.
 
 ## Caddy
 
@@ -75,7 +83,7 @@ admin.example.com {
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "geolocation=(), microphone=(), camera=()"
 		Cross-Origin-Opener-Policy "same-origin"
-		Content-Security-Policy "…"   # see deploy/Caddyfile
+		Content-Security-Policy "…"   # productionCsp(), verbatim; see deploy/Caddyfile
 		-Server
 	}
 

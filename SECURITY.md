@@ -134,8 +134,8 @@ See [deploy/README.md](deploy/README.md) for the Caddy site, systemd unit and sc
 - Caddy delivers the security headers from `src/security/csp.ts`
   (`Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`) plus HSTS.
-  [docs/security-headers.md](docs/security-headers.md) lists them and notes where the deployed
-  CSP differs from the canonical one.
+  The Caddyfile sends `productionCsp()` verbatim, and `csp.spec.ts` fails if it drifts;
+  [docs/security-headers.md](docs/security-headers.md) lists the headers.
 - `/srv/admin/dist` is **root-owned, 0644/0755**: Caddy only reads it, and the BFF service user
   must not be able to modify the JavaScript served to admins.
 - Secrets (`BFF_CLIENT_SECRET`) live only in `/etc/socrate/admin-bff.env`

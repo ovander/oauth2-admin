@@ -29,6 +29,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
   production-readiness report, deployment runbook) left the repository; `.gitignore` now keeps
   root-level `.docx`/`.pdf`/`.xlsx`/`.pptx` files out.
 
+### Security
+
+- `deploy/Caddyfile` now sends the canonical CSP from `src/security/csp.ts` verbatim:
+  `default-src 'none'` instead of `'self'`, and `font-src 'self'` without `data:`. Loading the
+  built app under the strict policy showed no violation and no `data:` font, so the relaxations
+  were unneeded. `csp.spec.ts` now fails if the Caddyfile's CSP or hardening headers drift from
+  `csp.ts`. Deploy: re-run `bootstrap.sh` on the host (`push.sh` does not ship the Caddyfile)
+  and reload Caddy.
+
 ### Fixed
 
 - The version store read `git_commit` and `build_date` from Socrate's `GET /api/version`, which
