@@ -21,6 +21,12 @@ admin.vandermoten.eu {
 		# unit-tested policy; csp.spec.ts fails if this line drifts from it).
 		# Same-origin app: the BFF makes every call first-party.
 		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+		# Trusted Types, staged (docs/security-headers.md): exactly
+		# REPORTING_ENDPOINTS and productionCspReportOnly() from csp.ts (csp.spec.ts
+		# checks both). Violations are only reported, to POST /bff/csp-report on
+		# the admin BFF (routed by @bff below), which logs them.
+		Reporting-Endpoints `csp="/bff/csp-report"`
+		Content-Security-Policy-Report-Only "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; require-trusted-types-for 'script'; trusted-types vue default; report-uri /bff/csp-report; report-to csp"
 		# Don't advertise the server
 		-Server
 	}
@@ -30,7 +36,8 @@ admin.vandermoten.eu {
 	# BFF (the ONLY client of the admin API). The BFF injects the bearer server-side
 	# and allowlists the issuer paths one by one: /api/profile (session-auth
 	# self-service), /api/version (public probe) and the two public
-	# password-reset posts (P3-23). flush_interval -1 keeps SSE unbuffered.
+	# password-reset posts (P3-23). /bff/* includes POST /bff/csp-report, the
+	# CSP report endpoint. flush_interval -1 keeps SSE unbuffered.
 	#
 	# Trust model (P3-17): the BFF honours X-Forwarded-For only from a loopback
 	# peer, relying on Caddy's default trusted_proxies (none) to REPLACE any

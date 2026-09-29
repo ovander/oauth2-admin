@@ -6,6 +6,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Added
+
+- **CSP report endpoint and the Trusted Types Report-Only header at the edge.** The BFF serves
+  `POST /bff/csp-report` (`bff/cspreport.go`): no session and no CSRF token, because browsers
+  send reports without either, which is safe because it only logs. It accepts
+  `application/csp-report` and `application/reports+json` (`415` otherwise), caps the body at
+  8 KiB (`413`), is rate-limited per IP by the new `BFF_CSP_REPORT_RATE` (default 30 a minute,
+  `429`), and logs one `csp-report:` line per violation (at most 10 per request) with query
+  strings and fragments stripped from every URL. `productionCspReportOnly()` gains
+  `report-uri /bff/csp-report; report-to csp`, `csp.ts` exports `REPORTING_ENDPOINTS`
+  (`csp="/bff/csp-report"`), and `deploy/Caddyfile` and `vite preview` now send
+  `Reporting-Endpoints` and `Content-Security-Policy-Report-Only`; `csp.spec.ts` checks both
+  against `csp.ts`. The enforced CSP is unchanged. Deploy: the BFF first (optional
+  `BFF_CSP_REPORT_RATE` in `/etc/socrate/admin-bff.env`), then the two header lines in the Caddy
+  site and a reload.
+
 ## [1.0.0] - 2026-09-29
 
 First tagged release of the Socrate admin console: a Vue 3 superadmin portal with a Go

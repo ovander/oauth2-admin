@@ -59,15 +59,39 @@ export function productionCsp(apiOrigin?: string): string {
 export const TRUSTED_TYPES_POLICIES: readonly string[] = ['vue', 'default']
 
 /**
+ * Where violation reports go: the admin BFF's `POST /bff/csp-report`, which
+ * only logs them (no session, no CSRF token: browsers send reports without
+ * either). Same origin, so Caddy's `/bff/*` route already reaches it.
+ */
+export const CSP_REPORT_PATH = '/bff/csp-report'
+
+/** Reporting API endpoint group named by `report-to`. */
+export const CSP_REPORT_GROUP = 'csp'
+
+/**
+ * Value of the `Reporting-Endpoints` response header that defines the
+ * `report-to` group: `csp="/bff/csp-report"`. Send it next to the policy that
+ * names the group.
+ */
+export const REPORTING_ENDPOINTS = `${CSP_REPORT_GROUP}="${CSP_REPORT_PATH}"`
+
+/**
  * Production CSP + Trusted Types, for the staged rollout. Serve as
  * `Content-Security-Policy-Report-Only` first so `require-trusted-types-for`
  * violations are reported without breaking the app; once staging is clean, fold
  * the Trusted Types directives into the enforced header.
+ *
+ * Reports go to the BFF by both mechanisms: `report-to` (Reporting API, with
+ * the `Reporting-Endpoints` header above), and `report-uri` for browsers that
+ * do not support it. A browser that supports `report-to` ignores `report-uri`.
+ * The enforced productionCsp() names no endpoint (docs/security-headers.md).
  */
 export function productionCspReportOnly(apiOrigin?: string): string {
   const directives = strictDirectives(apiOrigin)
   directives['require-trusted-types-for'] = ["'script'"]
   directives['trusted-types'] = [...TRUSTED_TYPES_POLICIES]
+  directives['report-uri'] = [CSP_REPORT_PATH]
+  directives['report-to'] = [CSP_REPORT_GROUP]
   return serialize(directives)
 }
 

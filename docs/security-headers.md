@@ -5,7 +5,7 @@ headers. The edge sets them on every response; in the deploy kit that edge is Ca
 itself is owned in code.
 
 > **Canonical source:** [`src/security/csp.ts`](../src/security/csp.ts): `productionCsp()`,
-> `productionCspReportOnly()` and `SECURITY_HEADERS`. It is unit-tested
+> `productionCspReportOnly()`, `REPORTING_ENDPOINTS` and `SECURITY_HEADERS`. It is unit-tested
 > (`src/__tests__/unit/csp.spec.ts`), the Vite dev and `vite preview` servers serve these
 > headers, and the Playwright test `e2e/security/headers.spec.ts` checks that the served app
 > carries them. **The deployed configuration is [`deploy/Caddyfile`](../deploy/Caddyfile)**;
@@ -16,6 +16,8 @@ itself is owned in code.
 | Header | Value from `csp.ts` |
 |---|---|
 | `Content-Security-Policy` | `productionCsp()`, see below |
+| `Content-Security-Policy-Report-Only` | `productionCspReportOnly()`, see [Trusted Types, staged](#trusted-types-staged) |
+| `Reporting-Endpoints` | `REPORTING_ENDPOINTS`: `csp="/bff/csp-report"` |
 | `X-Frame-Options` | `DENY` |
 | `X-Content-Type-Options` | `nosniff` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
@@ -50,16 +52,20 @@ font).
 
 ### Trusted Types, staged
 
-`productionCspReportOnly()` adds two directives to the policy above:
+`productionCspReportOnly()` adds four directives to the policy above:
 
 ```
-require-trusted-types-for 'script'; trusted-types vue default
+require-trusted-types-for 'script'; trusted-types vue default; report-uri /bff/csp-report;
+report-to csp
 ```
+
+(one line in the header). The first two are the Trusted Types rollout; the last two send each
+violation to the admin BFF (see [Reports](#reports)).
 
 `require-trusted-types-for 'script'` makes the DOM injection sinks (`innerHTML`,
 `insertAdjacentHTML`, `script.src`, `script.textContent`, …) refuse a plain string: a value must
 come from a Trusted Types policy. `trusted-types` lists the only policy names that may be
-created, once each (no `'allow-duplicates'`). The two are served as
+created, once each (no `'allow-duplicates'`). They are served as
 `Content-Security-Policy-Report-Only` next to the enforced policy until a real browser has shown
 them clean; `npm run preview` serves both headers. The allowed names:
 
@@ -106,40 +112,65 @@ Under enforcement a probe confirmed that the policy still bites: `innerHTML = ''
 `innerHTML` with markup, `insertAdjacentHTML`, `script.src` and `script.textContent` throw, and
 creating another policy, a second `default` or a second `vue` is refused.
 
-**Reporting endpoint.** Neither Socrate (`go-oauth2`) nor the admin BFF has a CSP report
-endpoint today, so the policy names none, and `deploy/Caddyfile` does not send the Report-Only
-header yet (`csp.spec.ts` checks that it does not). A header with nowhere to report only shows up
-in the console of the admin who hits it. The recommended endpoint is a small BFF route,
-`POST /bff/csp-report`, rather than a third-party collector: Caddy already routes `/bff/*` to
-the BFF, the BFF already has per-IP budgets and trusts `X-Forwarded-For` only from loopback, and
-reports then stay on the host instead of sending admin-console URLs to another party. It is its
-own change, with these constraints:
+**Reports.** The Report-Only policy names the admin BFF's `POST /bff/csp-report` twice:
+`report-to csp`, with the `Reporting-Endpoints: csp="/bff/csp-report"` header that defines the
+`csp` group (Reporting API, `application/reports+json`), and `report-uri /bff/csp-report` for a
+browser without the Reporting API (`application/csp-report`). A browser that supports
+`report-to` ignores `report-uri`. Checked with Chromium 141 through `deploy/Caddyfile` over
+HTTPS: an `innerHTML` assignment produced a `POST /bff/csp-report` with
+`Content-Type: application/reports+json` within about a second, and the BFF logged it. Over
+plain `http://localhost` (`vite preview`) the same browser delivered no report in two minutes, so
+there read the console or listen for `securitypolicyviolation`. The endpoint is on the console's own origin, Caddy's `/bff/*` route
+already reaches it, and reports stay on the host instead of going to a third-party collector.
 
-- Pre-authentication and without CSRF: browsers send reports without the session cookie and
-  cannot add `X-CSRF-Token`. The route therefore only logs; it never touches the session and is
-  never proxied upstream. It is the one unsafe method exempt from the CSRF check, and says so.
-- Accepts `application/csp-report` (`report-uri`) and `application/reports+json` (`report-to`)
-  only, a body capped with `http.MaxBytesReader` (for example 16 KiB), and a per-IP budget with
-  the existing `rateLimiter`; answers `204`, `413` or `429`.
-- Logs a few fields, each truncated: disposition, effective directive, blocked URI, sample,
-  document path. Query strings are dropped: the reset-password page carries its token in the
-  query.
+The route works without a session and without `X-CSRF-Token`, because browsers send reports
+without cookies and cannot add a header. That is safe because it only logs: it never reads or
+touches a session, never calls an upstream and changes no state, so a forged report can at worst
+add log lines. Those are bounded: a per-IP budget (`BFF_CSP_REPORT_RATE`, default 30 a minute,
+`X-Forwarded-For` trusted only from loopback), an 8 KiB body cap, and at most 10 lines per
+request. It answers `204`; `405` to another method, `415` to another content type, `413` above
+8 KiB, `400` to malformed JSON, and `429` over budget, without reading the body.
+
+Each violation is one line in the BFF log, for example:
+
+```
+csp-report: disposition="report" directive="require-trusted-types-for" blocked="trusted-types-sink" document="https://admin.example.com/reset-password" source="https://admin.example.com/assets/index.js" line=12 column=34 sink="Element innerHTML"
+```
+
+Query strings, fragments and userinfo are dropped from every URL-like field (the
+reset-password page carries its token in the query); keywords such as `inline`, `eval` or
+`trusted-types-sink` are kept as they are. Each field is truncated to 256 bytes and stripped of
+control characters. The policy text, the referrer, the code sample (for a Trusted Types
+violation only the sink name before `|` is kept), cookies, headers and the raw body are never
+logged. On the host, read them with:
+
+```bash
+journalctl -u socrate-admin-bff --since "7 days ago" | grep 'csp-report:'
+```
+
+The enforced `productionCsp()` names no endpoint. Its directives have held with no violation on
+every route (see above), and this change stays focused on the Trusted Types rollout; making the
+enforced policy report too is a separate decision, best taken when the Trusted Types directives
+are folded into it.
 
 Rollout steps:
 
-1. This change: the directives above and the app's `default` policy. `npm run preview` is clean.
-2. BFF: add `POST /bff/csp-report` as described, with tests (size cap, content types, rate
-   limit, no session or upstream access, query stripped from the logged URL).
-3. `csp.ts` and `deploy/Caddyfile` together: `productionCspReportOnly()` gains
-   `report-uri /bff/csp-report; report-to csp`, the edge sends a `Reporting-Endpoints:
-   csp="/bff/csp-report"` header (both, because browser support for `report-to` still
-   varies), and Caddy sends the Report-Only header; `csp.spec.ts` then checks that header
-   against `productionCspReportOnly()` instead of its absence.
-4. Soak: run the console with the Report-Only header for a few weeks of normal admin use, and
-   read the BFF log for reports.
-5. Once no report comes in, fold `require-trusted-types-for 'script'; trusted-types vue default`
-   into `productionCsp()` and the Caddyfile's enforced header (keeping the reporting directives),
-   and drop the Report-Only header.
+1. Done: the directives above and the app's `default` policy. `npm run preview` is clean.
+2. Done: `POST /bff/csp-report` in the BFF (`bff/cspreport.go`), with tests for the size cap,
+   the content types, the rate limit, unauthenticated access without upstream access, and the
+   query and fragment stripped from the logged URLs.
+3. Done: `productionCspReportOnly()` carries `report-uri /bff/csp-report; report-to csp`,
+   `csp.ts` exports `REPORTING_ENDPOINTS`, and `deploy/Caddyfile` sends both
+   `Reporting-Endpoints` and `Content-Security-Policy-Report-Only`; `csp.spec.ts` checks that
+   both equal `csp.ts`. Deploy the BFF first, then the Caddy site, so the first report finds its
+   endpoint.
+4. Next, soak: run the console with the Report-Only header for a few weeks of normal admin use,
+   and read the BFF log for `csp-report:` lines. A report names the directive, the sink and the
+   source line to fix; a fix that needs real HTML gets a named, sanitising policy, not a wider
+   `default`.
+5. Then enforce: once no report comes in, fold `require-trusted-types-for 'script';
+   trusted-types vue default` into `productionCsp()` and the Caddyfile's enforced header, decide
+   there whether the enforced policy keeps reporting, and drop the Report-Only header.
 
 ## Caddy
 
@@ -159,6 +190,8 @@ admin.example.com {
 		Permissions-Policy "geolocation=(), microphone=(), camera=()"
 		Cross-Origin-Opener-Policy "same-origin"
 		Content-Security-Policy "…"   # productionCsp(), verbatim; see deploy/Caddyfile
+		Reporting-Endpoints `csp="/bff/csp-report"`
+		Content-Security-Policy-Report-Only "…"   # productionCspReportOnly(), verbatim
 		-Server
 	}
 

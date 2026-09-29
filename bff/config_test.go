@@ -24,6 +24,7 @@ func phase2Env(t *testing.T) {
 	t.Setenv("BFF_LOGIN_RATE", "")
 	t.Setenv("BFF_ELEVATE_RATE", "")
 	t.Setenv("BFF_PASSWORD_RESET_RATE", "")
+	t.Setenv("BFF_CSP_REPORT_RATE", "")
 }
 
 func TestLoadConfigDefaults(t *testing.T) {
@@ -161,6 +162,7 @@ func TestLoadConfigRateBudgets(t *testing.T) {
 		{"BFF_PASSWORD_RESET_RATE", 5, func(c *Config) int { return c.PasswordResetRate }},
 		{"BFF_LOGIN_RATE", 10, func(c *Config) int { return c.LoginRate }},
 		{"BFF_ELEVATE_RATE", 5, func(c *Config) int { return c.ElevateRate }},
+		{"BFF_CSP_REPORT_RATE", 30, func(c *Config) int { return c.CSPReportRate }},
 	}
 	for _, b := range budgets {
 		for _, c := range []struct {

@@ -41,6 +41,10 @@ type Config struct {
 	// public issuer password-reset posts the BFF forwards (P3-23); both trigger
 	// email, so the budget is small.
 	PasswordResetRate int
+	// CSPReportRate (BFF_CSP_REPORT_RATE, default 30) guards POST
+	// /bff/csp-report, which needs no session or CSRF token: it only logs, and
+	// the budget bounds how much a client can write to the log.
+	CSPReportRate int
 
 	// AllowPassthrough, when true, restores the legacy dual-mode behaviour where
 	// a request without a valid session is proxied through with its own
@@ -121,6 +125,7 @@ func LoadConfig() (*Config, error) {
 		LoginRate:         getInt("BFF_LOGIN_RATE", 10),
 		ElevateRate:       getInt("BFF_ELEVATE_RATE", 5),
 		PasswordResetRate: getInt("BFF_PASSWORD_RESET_RATE", 5),
+		CSPReportRate:     getInt("BFF_CSP_REPORT_RATE", 30),
 	}
 	if cfg.ListenAddr == "" {
 		return nil, fmt.Errorf("BFF_LISTEN_ADDR must not be empty")

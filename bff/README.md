@@ -44,6 +44,7 @@ where the file lives at `/etc/socrate/admin-bff.env`.
 | `BFF_LOGIN_RATE` | Per-IP budget per minute on `/bff/login`. | `10` |
 | `BFF_ELEVATE_RATE` | Per-IP budget per minute on `/bff/elevate`. | `5` |
 | `BFF_PASSWORD_RESET_RATE` | Per-IP budget per minute shared by the two public password-reset posts (`/api/auth/request-password-reset`, `/api/auth/reset-password`), which trigger email. | `5` |
+| `BFF_CSP_REPORT_RATE` | Per-IP budget per minute on `POST /bff/csp-report`, the unauthenticated CSP report endpoint; over it, `429` without reading the body. | `30` |
 | `BFF_ALLOW_PASSTHROUGH` | Migration only: forward a request without a session with its own `Authorization` header and no CSRF check. Logged as a warning. | `false` |
 | `BFF_PHASE1_PASSTHROUGH` | Migration only: run with no sessions at all; see below. Logged as a warning. | `false` |
 
@@ -57,6 +58,7 @@ where the file lives at `/etc/socrate/admin-bff.env`.
 | Route | Auth | Upstream |
 |---|---|---|
 | `GET /bff/healthz` | none | none |
+| `POST /bff/csp-report` | none, and no CSRF token: browsers send reports without cookies or custom headers. It only logs (see below); other methods get `405` | none |
 | `GET /bff/login`, `GET /bff/callback` | login-binding cookie | issuer (back-channel token exchange) |
 | `GET /bff/session` | session cookie | none (`Cache-Control: no-store`) |
 | `POST /bff/logout`, `POST /bff/elevate` | session cookie + `X-CSRF-Token` | issuer (revocation) / admin API (step-up) |
@@ -80,6 +82,17 @@ Everything else is `404`. The allowlist is in `app.go`.
   `state`; `/bff/callback` completes only for the browser that presents it.
 - **CSRF.** Unsafe methods on the proxy, and `/bff/logout` and `/bff/elevate`, need the
   double-submit `X-CSRF-Token` from `/bff/session`.
+- **CSP reports (`cspreport.go`).** Unlike the other `/bff/*` posts, `POST /bff/csp-report` has no
+  session or CSRF check, because browsers send CSP reports without either. It is safe because it
+  only writes a log line: no session access, no upstream, no state change. It accepts
+  `application/csp-report` (`report-uri`) and `application/reports+json` (`report-to`), `415`
+  otherwise; caps the body at 8 KiB (`413`) and rejects malformed JSON (`400`); is rate-limited
+  per IP (`BFF_CSP_REPORT_RATE`, `429`); and answers `204`. Each violation (at most 10 per
+  request) is one `csp-report:` line with the disposition, directive, blocked URI, document URI,
+  source file, line and column, and for Trusted Types the sink name. Query strings, fragments
+  and userinfo are dropped from the URLs, each field is truncated to 256 bytes and stripped of
+  control characters, and cookies, headers, the sample and the raw body are never logged.
+  Reading them: [`docs/security-headers.md`](../docs/security-headers.md#reports).
 - **Step-up.** `/bff/elevate` forwards the admin API's `4xx` challenge so the dialog can
   re-prompt, never an upstream `5xx` body, and refuses an elevated token without a usable `exp`.
 - **Client IP.** Per-IP budgets use `X-Forwarded-For` only when the TCP peer is loopback (Caddy

@@ -12,6 +12,8 @@ import (
 // It is a strict allowlist — NEVER an open proxy:
 //
 //	GET  /bff/healthz   liveness (always)
+//	POST /bff/csp-report CSP violation reports: no session, no CSRF, log only,
+//	                    per-IP rate limited (always; other methods → 405)
 //	     /bff/login,/bff/callback,/bff/session,/bff/logout,/bff/elevate   (Phase 2 only)
 //	     /api/admin/*   reverse proxy (session→token injection in Phase 2)
 //	     /api/profile   issuer self-service, session-authenticated (Phase 2 only)
