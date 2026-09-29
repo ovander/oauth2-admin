@@ -280,7 +280,7 @@ src/
 
 ### Prerequisites
 
-- Node.js 20 (the version CI uses) and npm.
+- Node.js 24 (the version in `.nvmrc`, which CI uses) and npm.
 - Go for the BFF: `bff/go.mod` declares `go 1.25.0` and pins `toolchain go1.27.1`, which the Go
   command downloads for you.
 - A reachable Socrate server with its issuer (by default `:8080`) and its loopback admin API
