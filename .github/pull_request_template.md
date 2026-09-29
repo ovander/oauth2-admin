@@ -1,0 +1,20 @@
+## What and why
+
+<!-- What this changes and why. Link the issue if there is one ("Closes #…"). -->
+
+## How it was tested
+
+<!-- New or changed tests, and anything checked by hand in the browser. -->
+
+- [ ] `npm run lint:check`, `npx vue-tsc -b`, `npm run build` pass
+- [ ] `npm run coverage` passes; `npx playwright test` passes (when a flow or the BFF changes)
+- [ ] `cd bff && go vet ./... && go test -race ./...` pass (when the BFF changes)
+- [ ] No token reaches the browser, no new XSS sink, CSP unchanged or changed in both `src/security/csp.ts` and `deploy/`
+- [ ] A line is added under `## [Unreleased]` in `CHANGELOG.md`
+
+## Deploy notes
+
+<!-- Delete what does not apply. -->
+- New or changed BFF environment variable: <!-- name, default, also in bff/.env.example and deploy/env -->
+- Caddy or CSP change: <!-- what, and which file in deploy/ -->
+- Order with the Socrate server: <!-- e.g. needs go-oauth2 vX.Y.Z deployed first -->
