@@ -31,6 +31,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 ### Fixed
 
 - The README declared an MIT licence with no licence file; the project is Apache-2.0.
+- The BFF now reads `BFF_PASSWORD_RESET_RATE` (default 5 per minute). It was declared but never
+  loaded, so the two public password-reset posts had no per-IP budget despite the value in the
+  env templates. A zero, negative or invalid value falls back to the default.
 
 Changes before this changelog was introduced are in the git history.
 

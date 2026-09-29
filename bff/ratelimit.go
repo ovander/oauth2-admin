@@ -41,7 +41,10 @@ func newRateLimiter(limit int, window time.Duration) *rateLimiter {
 // it is not, it returns the Retry-After duration until the window rolls over.
 func (rl *rateLimiter) allow(key string) (bool, time.Duration) {
 	if rl.limit <= 0 {
-		return true, 0 // a non-positive limit disables the limiter
+		// A non-positive limit disables the limiter. LoadConfig never produces
+		// one (getInt falls back to the positive default); only a hand-built
+		// Config can.
+		return true, 0
 	}
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
