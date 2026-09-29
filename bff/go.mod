@@ -7,11 +7,11 @@ go 1.25.0
 // it or bff/Dockerfile's golang image drift apart.
 toolchain go1.27.1
 
-require github.com/ovander/backendkit v1.12.0
+require github.com/ovander/backendkit v1.15.0
 
 require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 )

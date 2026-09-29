@@ -98,6 +98,14 @@ Everything else is `404`. The allowlist is in `app.go`.
 - **Client IP.** Per-IP budgets use `X-Forwarded-For` only when the TCP peer is loopback (Caddy
   on the same host, which replaces any client-supplied value); otherwise the header is ignored.
   `X-Real-IP`, `True-Client-IP` and `Forwarded` are stripped before a request goes upstream.
+- **Client attribution (`attribution.go`).** The outermost middleware records the client IP
+  resolved above and the browser's `User-Agent` in the request context. Every Socrate call made
+  for the browser carries them: the code exchange, the refresh, the logout revocations and the
+  step-up password check are sent with `X-Forwarded-For` set to exactly that address and the
+  browser's `User-Agent` (sanitised, at most 512 bytes), so Socrate audits and rate-limits the
+  browser rather than the BFF. Proxied requests drop the inbound `X-Forwarded-For` and send
+  `<client IP>, <BFF peer>`: Socrate trusts the left-most entry from loopback, so the BFF
+  replaces the header and never appends to a browser-supplied value.
 - **Logout revokes** the refresh and access tokens at the issuer (RFC 7009) before dropping the
   session.
 - **SSE-aware.** The proxies flush every write, so the security event stream is not buffered.
