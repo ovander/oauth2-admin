@@ -16,6 +16,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ### Changed
 
+- README: a row of self-updating badges (CI status, licence, Go version) under the title.
 - Documentation brought to the suite's standard and checked against the code (README,
   `bff/README.md`, `docs/`, `deploy/README.md`, `SECURITY.md`, `CONTRIBUTING.md`, the
   `.env.example` comments and the GitHub templates): full local setup and testing sections, the

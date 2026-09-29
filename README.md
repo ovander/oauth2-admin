@@ -1,5 +1,9 @@
 # Socrate admin console
 
+[![CI](https://github.com/ovander/oauth2-admin/actions/workflows/ci.yml/badge.svg)](https://github.com/ovander/oauth2-admin/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/github/license/ovander/oauth2-admin)](LICENSE)
+[![Go version](https://img.shields.io/github/go-mod/go-version/ovander/oauth2-admin?filename=bff%2Fgo.mod)](bff/go.mod)
+
 > The superadmin portal for Socrate: applications, users, security and access policy in one
 > place, with no token in the browser.
 
