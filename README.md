@@ -9,6 +9,22 @@ A modern, production-ready **Superadmin Portal** for the [Socrate](https://githu
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind-4.0-cyan)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)
 
+## Table of Contents
+
+- [Architecture](#architecture)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [API Integration](#api-integration)
+- [Authentication](#authentication)
+- [Role-Based Access Control](#role-based-access-control)
+- [Customization](#customization)
+- [Build & Deployment](#build--deployment)
+- [Contributing](#contributing)
+- [Security](#security)
+- [License](#license)
+
 ## Architecture
 
 The console is a **cookie-session SPA** fronted by a Go **Backend-for-Frontend
@@ -340,6 +356,18 @@ the Caddy routing in front of it. The repo ships a complete kit in
 The BFF (Go, stdlib-only) lives in [`bff/`](bff/README.md) and is the only client
 of the loopback admin API.
 
+## Contributing
+
+Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers the development setup, the
+security rules this console must keep, the required checks and the pull-request flow. Notable
+changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+
+## Security
+
+Please report vulnerabilities privately through the repository's **Security** tab → **Report a
+vulnerability**, not in a public issue. [SECURITY.md](SECURITY.md) describes the scope, the
+supported versions and the controls enforced in the SPA, the BFF and the deployment.
+
 ## License
 
-MIT License - See LICENSE file for details.
+The admin console is licensed under the [Apache License 2.0](LICENSE).

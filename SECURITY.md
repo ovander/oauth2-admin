@@ -1,12 +1,42 @@
-# Security Posture — Socrate Admin Console
+# Security policy — Socrate admin console
 
 The admin console is the privileged surface of the Socrate OAuth2/OIDC platform.
 It is a Vue SPA plus a small Go **Backend-for-Frontend** (`bff/`) and is held to
 the same hardening bar as the server: it must not become the weak link or a
-vector into the admin API. This document records the controls enforced in code
-and the deployment requirements the host must provide. (An earlier revision
-described the retired browser-held-token architecture; this one reflects the
-BFF model that is actually deployed.)
+vector into the admin API. Security reports are welcome and handled first.
+
+## Reporting a vulnerability
+
+Please use GitHub's **private vulnerability reporting**: the repository's
+**Security** tab → **Report a vulnerability**. Do not open a public issue or pull
+request for a vulnerability.
+
+Include what you found, how to reproduce it, and the version you tested
+(`GET /api/version`, or the commit you built).
+
+You will get an acknowledgement within a week. Fixes are released as soon as
+they are ready, and the report is credited in the release notes unless you
+prefer otherwise.
+
+## Scope
+
+- In scope: the admin SPA and its BFF (`bff/`), including the session and
+  cookie model, CSRF protection, the proxy allowlist, step-up, and the
+  deployment files in `deploy/`.
+- Out of scope: the Socrate identity provider and its admin API (report those in
+  [`ovander/go-oauth2`](https://github.com/ovander/go-oauth2)), the shared
+  `backendkit` library ([`ovander/backendkit`](https://github.com/ovander/backendkit)),
+  denial-of-service by volume, and findings that need a compromised admin
+  device.
+
+## Supported versions
+
+Only the latest release receives security fixes.
+
+---
+
+The rest of this document records the security posture: the controls enforced
+in code and the deployment requirements the host must provide.
 
 ## Architecture in one paragraph
 
@@ -116,8 +146,3 @@ See `deploy/` for the Caddy site, systemd unit and scripts.
 - The BFF is built, tested and shipped with one Go: `toolchain go1.27.1` in
   `bff/go.mod` and `golang:1.27.1-alpine` in `bff/Dockerfile`. CI builds with
   the go.mod pin and fails if the Dockerfile's image drifts from it.
-
-## Reporting
-
-Report suspected vulnerabilities privately to the Socrate maintainers; do not
-open a public issue with exploit detail.

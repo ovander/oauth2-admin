@@ -76,3 +76,11 @@ Thumbs.db
 
 # Deployment build artifacts
 deploy/_artifacts/
+
+# ---- Internal documents ----
+# Reports, audits and runbooks in office formats are kept outside this public
+# repository; project documentation is Markdown under docs/.
+/*.docx
+/*.pdf
+/*.xlsx
+/*.pptx
