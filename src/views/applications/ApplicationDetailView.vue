@@ -35,12 +35,22 @@
           <div>
             <h1 class="text-2xl font-bold text-gray-900 dark:text-white">{{ app.name }}</h1>
             <div class="flex items-center gap-2 mt-1">
+              <span class="text-sm font-mono text-gray-500 dark:text-brand-400" data-test="app-id">ID {{ app.id }}</span>
+              <Button
+                icon="pi pi-copy"
+                text
+                rounded
+                size="small"
+                aria-label="Copy app ID"
+                @click="copyToClipboard(String(app.id), 'App ID')"
+              />
               <span class="text-sm font-mono text-gray-500 dark:text-brand-400">{{ app.client_id }}</span>
               <Button
                 icon="pi pi-copy"
                 text
                 rounded
                 size="small"
+                aria-label="Copy client ID"
                 @click="copyToClipboard(app.client_id, 'Client ID')"
               />
             </div>
@@ -126,6 +136,16 @@
                 
                 <div class="space-y-4">
                   <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">App ID</label>
+                    <div class="flex gap-2">
+                      <InputText :modelValue="String(app.id)" readonly class="flex-1 font-mono text-sm" />
+                      <Button icon="pi pi-copy" severity="secondary" outlined aria-label="Copy app ID" @click="copyToClipboard(String(app.id), 'App ID')" />
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-brand-400 mt-1">
+                      The numeric ID in Socrate's app routes (<code>/api/apps/{{ app.id }}/…</code>) and in <code>SOCRATE_APP_ID</code>.
+                    </p>
+                  </div>
+                  <div>
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Client ID</label>
                     <div class="flex gap-2">
                       <InputText :modelValue="app.client_id" readonly class="flex-1 font-mono text-sm" />
@@ -164,6 +184,26 @@
                       </p>
                     </div>
                   </div>
+                </div>
+
+                <!-- SOCRATE_* variables for the app's server-side .env -->
+                <div class="mt-6 pt-4 border-t border-gray-100 dark:border-brand-800">
+                  <Button
+                    label="Copy .env block"
+                    icon="pi pi-copy"
+                    severity="secondary"
+                    outlined
+                    data-test="copy-env"
+                    @click="copyEnvBlock"
+                  />
+                  <p class="text-xs text-gray-500 dark:text-brand-400 mt-2">
+                    The <code>SOCRATE_*</code> variables for the application's server-side <code>.env</code>.
+                    <template v-if="!app.is_public">
+                      {{ newSecret
+                        ? 'It includes the new client secret shown above.'
+                        : 'The client secret is left empty: Socrate keeps only its hash.' }}
+                    </template>
+                  </p>
                 </div>
 
                 <!-- Info -->
@@ -697,6 +737,8 @@ import {
   getAppActivityLogs
 } from '@/services/applicationService'
 import type { App, AppUser, AppActivityLog, AppUserRole } from '@/types/application'
+import { getServerConfig } from '@/services/settingsService'
+import { buildAppEnv } from '@/utils/appEnv'
 
 const route = useRoute()
 const router = useRouter()
@@ -719,6 +761,8 @@ const users = ref<AppUser[]>([])
 const activityLogs = ref<AppActivityLog[]>([])
 const activeTab = ref('0')
 const newSecret = ref('')
+// Socrate's public URL for the .env block; empty until loaded (or if it fails).
+const issuerUrl = ref('')
 const userAddError = ref('')
 const userSearch = ref('')
 const userRoleFilter = ref('all')
@@ -1022,6 +1066,12 @@ function removeRedirectUri(index: number) {
   }
 }
 
+function copyEnvBlock() {
+  if (!app.value) return
+  const env = buildAppEnv(app.value, { issuer: issuerUrl.value, clientSecret: newSecret.value })
+  copyToClipboard(env, '.env block')
+}
+
 function copyToClipboard(text: string, label: string) {
   navigator.clipboard.writeText(text)
   showSuccess(`${label} copied to clipboard`)
@@ -1081,6 +1131,10 @@ watch(activeTab, (newTab) => {
 
 // Lifecycle — await the app before loading dependent data
 onMounted(async () => {
+  // Best effort: without it the .env block leaves the URLs to fill in.
+  getServerConfig()
+    .then(cfg => { issuerUrl.value = cfg.issuer_url })
+    .catch(() => { issuerUrl.value = '' })
   await loadApplication()
   // Users are always pre-fetched so the tab is ready instantly
   await loadUsers()

@@ -109,7 +109,7 @@
                   {{ app.name }}
                 </h3>
                 <p class="text-xs font-mono text-gray-500 dark:text-brand-400">
-                  {{ app.client_id.slice(0, 16) }}...
+                  ID {{ app.id }} · {{ app.client_id.slice(0, 16) }}...
                 </p>
               </div>
             </div>
