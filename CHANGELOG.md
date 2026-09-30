@@ -6,6 +6,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Added
+
+- **The numeric app ID, and a "Copy .env block" button.** The application list, the detail page
+  and the "application created" page show the app's numeric ID (with a copy button next to the
+  client ID). Socrate's app routes (`/api/apps/{id}/…`) and backendkit's `SOCRATE_APP_ID` need it,
+  and it was not visible anywhere. The detail and "created" pages also copy the `SOCRATE_*`
+  variables an app's backend needs, under the names backendkit's integration guide uses:
+  `SOCRATE_ISSUER`, `SOCRATE_BASE_URL`, `SOCRATE_JWKS_URL` (from Socrate's `issuer_url`),
+  `SOCRATE_ADMIN_BASE_URL` (the apps-host tunnel, `http://127.0.0.1:18082`, by default),
+  `SOCRATE_CLIENT_ID`, `SOCRATE_CLIENT_SECRET` and `SOCRATE_APP_ID`. The client secret is filled in
+  only on the pages that already show it once (creation, rotation); otherwise it is left empty,
+  since Socrate keeps only its hash. No BFF, Caddy or CSP change.
+
 ### Security
 
 - **Dependency updates for new advisories.** axios 1.20.0 (several high-severity advisories on

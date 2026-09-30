@@ -66,6 +66,25 @@
           </div>
         </div>
 
+        <!-- App ID -->
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">App ID</label>
+          <div class="flex gap-2">
+            <InputText
+              :modelValue="String(createdApp.id)"
+              readonly
+              class="flex-1 font-mono text-sm"
+            />
+            <Button
+              icon="pi pi-copy"
+              severity="secondary"
+              outlined
+              @click="copyToClipboard(String(createdApp.id), 'App ID')"
+              v-tooltip="'Copy App ID'"
+            />
+          </div>
+        </div>
+
         <!-- Client ID -->
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Client ID</label>
@@ -119,6 +138,14 @@
             icon="pi pi-copy"
             severity="secondary"
             @click="copyCredentials"
+          />
+          <Button
+            label="Copy .env block"
+            icon="pi pi-copy"
+            severity="secondary"
+            data-test="copy-env"
+            v-tooltip="!createdApp.is_public ? 'SOCRATE_* variables, client secret included' : 'SOCRATE_* variables'"
+            @click="copyEnvBlock"
           />
           <Button
             label="Go to Application"
@@ -300,6 +327,8 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import { useToast } from '@/composables/useToast'
 import { createApp } from '@/services/applicationService'
 import type { AppWithSecret } from '@/types/application'
+import { getServerConfig } from '@/services/settingsService'
+import { buildAppEnv } from '@/utils/appEnv'
 
 const { showSuccess, showError } = useToast()
 
@@ -308,6 +337,8 @@ const submitting = ref(false)
 const error = ref('')
 const createdApp = ref<AppWithSecret | null>(null)
 const showSecret = ref(false)
+// Socrate's public URL for the .env block; empty until loaded (or if it fails).
+const issuerUrl = ref('')
 
 const form = reactive({
   name: '',
@@ -362,6 +393,11 @@ async function handleSubmit() {
 
     createdApp.value = app
     showSuccess('Application created successfully')
+    // Fetched now, not on click: the clipboard write must stay within the click.
+    // Best effort: without it the .env block leaves the URLs to fill in.
+    getServerConfig()
+      .then(cfg => { issuerUrl.value = cfg.issuer_url })
+      .catch(() => { issuerUrl.value = '' })
   } catch (err: any) {
     error.value = err.response?.data?.message || err.response?.data?.error || 'Failed to create application'
     showError(error.value)
@@ -373,6 +409,12 @@ async function handleSubmit() {
 function copyToClipboard(text: string, label: string) {
   navigator.clipboard.writeText(text)
   showSuccess(`${label} copied to clipboard`)
+}
+
+function copyEnvBlock() {
+  if (!createdApp.value) return
+  const env = buildAppEnv(createdApp.value, { issuer: issuerUrl.value, clientSecret: createdApp.value.client_secret })
+  copyToClipboard(env, '.env block')
 }
 
 function copyCredentials() {
