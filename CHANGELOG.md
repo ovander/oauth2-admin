@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Added
+
+- **The magic-link page of an application.** The application settings form and the create form
+  have a "Magic-link page" field: the app's page that magic-link emails open, stored in Socrate
+  v1.6.0's `magic_link_url`. The settings form says whether magic links are configured (without a
+  page, Socrate answers the app's magic-link requests with `409`), sends the field only when it
+  changed, and clears it when emptied. Socrate validates it (https, same origin as a redirect
+  URI); its message is shown under the field. Saving the settings now shows Socrate's error text
+  instead of a generic "Failed to update application". No BFF, Caddy or CSP change.
+
 ## [1.2.0] - 2026-09-30
 
 Minor release. The console shows each application's numeric ID and copies the `SOCRATE_*`
