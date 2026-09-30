@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-30
+
+Minor release. The application settings and create forms set the page an application's
+magic-link emails open (Socrate's `magic_link_url`), and saving the settings shows Socrate's
+error message. No BFF environment variable, Caddy or CSP change; the BFF is unchanged. Needs
+Socrate v1.6.0 for the magic-link page to be stored.
+
 ### Added
 
 - **The magic-link page of an application.** The application settings form and the create form
@@ -157,7 +164,8 @@ the server toolchain in the badge).
 
 Changes before this changelog was introduced are in the git history.
 
-[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ovander/oauth2-admin/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ovander/oauth2-admin/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ovander/oauth2-admin/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ovander/oauth2-admin/releases/tag/v1.0.0
