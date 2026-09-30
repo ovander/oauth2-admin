@@ -269,6 +269,25 @@
           </small>
         </div>
 
+        <!-- Magic-link page -->
+        <div>
+          <label for="magic-link-url" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Magic-link page <span class="text-gray-400 font-normal">(optional)</span>
+          </label>
+          <InputText
+            id="magic-link-url"
+            v-model="form.magic_link_url"
+            placeholder="https://myapp.example.com/auth/magic"
+            class="w-full"
+            :disabled="submitting"
+            data-test="magic-link-url"
+          />
+          <small class="text-gray-500 dark:text-brand-400 text-xs mt-1">
+            The app's page that magic-link emails open. https, same origin as a redirect URI.
+            Leave empty if the app does not send magic links.
+          </small>
+        </div>
+
         <!-- Public Client -->
         <div class="flex items-start gap-3">
           <Checkbox v-model="form.is_public" inputId="is_public" :binary="true" :disabled="submitting" />
@@ -344,6 +363,7 @@ const form = reactive({
   name: '',
   url: '',
   redirect_uris: [''],
+  magic_link_url: '',
   is_public: false
 })
 
@@ -388,7 +408,8 @@ async function handleSubmit() {
       name: form.name.trim(),
       url: form.url.trim() || undefined,
       redirect_uris: redirectUris.length > 0 ? redirectUris : undefined,
-      is_public: form.is_public || undefined   // omit when false (server default)
+      is_public: form.is_public || undefined,  // omit when false (server default)
+      magic_link_url: form.magic_link_url.trim() || undefined
     })
 
     createdApp.value = app

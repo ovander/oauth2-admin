@@ -13,6 +13,7 @@ export interface App {
   created_at: string
   is_public: boolean       // true = public client (SPA/mobile), no secret
   require_pkce: boolean    // always true when is_public; optional for confidential
+  magic_link_url?: string  // page magic-link emails open (Socrate v1.6.0+); absent = not configured
 }
 
 // Returned only on create or rotate-secret
@@ -30,6 +31,7 @@ export interface CreateAppRequest {
   url?: string
   redirect_uris?: string[]
   is_public?: boolean  // true = public client; require_pkce auto-set server-side
+  magic_link_url?: string
 }
 
 export interface UpdateAppRequest {
@@ -37,6 +39,7 @@ export interface UpdateAppRequest {
   url?: string
   redirect_uris?: string[]
   active?: boolean
+  magic_link_url?: string  // '' clears it; omitted leaves it unchanged
 }
 
 // ============================================================================

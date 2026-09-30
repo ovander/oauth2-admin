@@ -124,6 +124,28 @@
                       <Button label="Add URI" icon="pi pi-plus" severity="secondary" outlined size="small" @click="addRedirectUri" />
                     </div>
                   </div>
+                  <div>
+                    <label for="magic-link-url" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Magic-link page</label>
+                    <InputText
+                      id="magic-link-url"
+                      v-model="editForm.magic_link_url"
+                      placeholder="https://myapp.example.com/auth/magic"
+                      class="w-full"
+                      :class="{ 'p-invalid': magicLinkError }"
+                      data-test="magic-link-url"
+                    />
+                    <p v-if="magicLinkError" class="text-xs text-error-600 dark:text-error-400 mt-1" data-test="magic-link-error">{{ magicLinkError }}</p>
+                    <p class="text-xs text-gray-500 dark:text-brand-400 mt-1" data-test="magic-link-status">
+                      <template v-if="app.magic_link_url">
+                        Magic-link emails open this page with <code>token</code> and <code>client_id</code> added;
+                        the page posts them to Socrate's verify endpoint.
+                      </template>
+                      <template v-else>
+                        Not configured: Socrate refuses this app's magic-link requests (409) until it is set.
+                      </template>
+                      It must be https, on the same origin as one of the redirect URIs. Empty it to turn magic links off.
+                    </p>
+                  </div>
                   <div class="pt-4 border-t border-gray-100 dark:border-brand-800">
                     <Button type="submit" label="Save Changes" icon="pi pi-check" :loading="saving" />
                   </div>
@@ -738,6 +760,7 @@ import {
 } from '@/services/applicationService'
 import type { App, AppUser, AppActivityLog, AppUserRole } from '@/types/application'
 import { getServerConfig } from '@/services/settingsService'
+import { getErrorMessage } from '@/services/api'
 import { buildAppEnv } from '@/utils/appEnv'
 
 const route = useRoute()
@@ -783,8 +806,11 @@ const lastAddedUser = ref<{ userId: number; inviteToken: string; role: string; i
 const editForm = reactive({
   name: '',
   url: '',
-  redirect_uris: ['']
+  redirect_uris: [''],
+  magic_link_url: ''
 })
+// Socrate's validation message for the magic-link page, shown under the field.
+const magicLinkError = ref('')
 
 // Add user form
 const newUserEmail = ref('')
@@ -841,6 +867,7 @@ async function loadApplication() {
     editForm.name = app.value.name
     editForm.url = app.value.url || ''
     editForm.redirect_uris = app.value.redirect_uris?.length ? [...app.value.redirect_uris] : ['']
+    editForm.magic_link_url = app.value.magic_link_url || ''
   } catch (error) {
     console.error('Load app error:', error)
     app.value = null
@@ -881,19 +908,27 @@ async function loadActivityLogs() {
 async function saveSettings() {
   if (!app.value) return
   saving.value = true
+  magicLinkError.value = ''
   try {
     const redirectUris = editForm.redirect_uris.filter(uri => uri.trim())
-    await updateApp(app.value.id, {
+    const magicLinkUrl = editForm.magic_link_url.trim()
+    const updated = await updateApp(app.value.id, {
       name: editForm.name,
       url: editForm.url || undefined,
-      redirect_uris: redirectUris
+      redirect_uris: redirectUris,
+      // Sent only when changed: '' clears it, omitted leaves it as it is.
+      ...(magicLinkUrl !== (app.value.magic_link_url || '') ? { magic_link_url: magicLinkUrl } : {})
     })
     app.value.name = editForm.name
     app.value.url = editForm.url
     app.value.redirect_uris = redirectUris
+    app.value.magic_link_url = updated?.magic_link_url || undefined
+    editForm.magic_link_url = app.value.magic_link_url || ''
     showSuccess('Application updated successfully')
-  } catch (error: any) {
-    showError(error.response?.data?.message || 'Failed to update application')
+  } catch (error: unknown) {
+    const message = getErrorMessage(error)
+    if (message.includes('magic_link_url')) magicLinkError.value = message
+    showError(message || 'Failed to update application')
   } finally {
     saving.value = false
   }
