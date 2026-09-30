@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-30
+
+Minor release. The console shows each application's numeric ID and copies the `SOCRATE_*`
+variables for an application's server-side `.env`; axios, brace-expansion and vitest move to
+versions without the new advisories. No BFF environment variable, Caddy or CSP change; the BFF is
+unchanged. Works with Socrate v1.5.0 and later.
+
 ### Added
 
 - **The numeric app ID, and a "Copy .env block" button.** The application list, the detail page
@@ -140,6 +147,7 @@ the server toolchain in the badge).
 
 Changes before this changelog was introduced are in the git history.
 
-[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/ovander/oauth2-admin/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ovander/oauth2-admin/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ovander/oauth2-admin/releases/tag/v1.0.0
