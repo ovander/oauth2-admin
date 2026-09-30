@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Security
+
+- **Dependency updates for new advisories.** axios 1.20.0 (several high-severity advisories on
+  1.0.0–1.19.0: prototype-pollution gadgets, header injection, ReDoS, redirect handling),
+  brace-expansion 1.1.21 / 2.1.7 / 5.0.12 (high: quadratic expansion and recursion DoS, via
+  minimatch in dev tooling) and vitest / @vitest/coverage-v8 4.1.11 (moderate: path traversal in
+  @vitest/mocker, dev only). `npm audit` reports no advisory; the audit gate was failing on `main`.
+
 ## [1.1.0] - 2026-09-29
 
 Minor release. The BFF attributes its own Socrate calls (sign-in, refresh, sign-out, step-up) to
