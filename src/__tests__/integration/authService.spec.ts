@@ -14,12 +14,13 @@
  * Login, logout and step-up elevation are BFF flows (services/session.ts) and
  * are covered by session.spec.ts and authStore.spec.ts.
  */
-import { describe, it, expect }  from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { http, HttpResponse }    from 'msw'
 import { server }                from '../msw/server'
 import { BASE, ADMIN_USER }      from '../msw/handlers'
 
 import * as authService  from '@/services/authService'
+import router            from '@/router/router'
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe('authService — getProfile()', () => {
@@ -30,6 +31,10 @@ describe('authService — getProfile()', () => {
   })
 
   it('propagates a 401 when the session is gone', async () => {
+    // The interceptor sends a 401 to the Login route. Stub the navigation (as
+    // api.interceptor.spec.ts does): a real one lazy-loads route views that can
+    // finish after this file's environment is torn down (EnvironmentTeardownError).
+    const pushSpy = vi.spyOn(router, 'push').mockResolvedValue(undefined)
     server.use(
       http.get(`${BASE}/api/admin/profile`, () =>
         HttpResponse.json({ error: 'Unauthorized' }, { status: 401 }),
@@ -38,6 +43,8 @@ describe('authService — getProfile()', () => {
     await expect(authService.getProfile()).rejects.toMatchObject({
       response: { status: 401 },
     })
+    expect(pushSpy).toHaveBeenCalledWith({ name: 'Login' })
+    pushSpy.mockRestore()
   })
 })
 
