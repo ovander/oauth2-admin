@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-01
+
+Minor release. The "Copy .env block" never writes an empty value: a value the console does not
+know (the client secret, or Socrate's URLs when they cannot be read) is a commented-out line, so
+pasting the block over an application's `.env` no longer erases the working secret. A flaky test
+is fixed. No BFF environment variable, Caddy or CSP change; the BFF is unchanged.
+
 ### Fixed
 
 - **The "Copy .env block" never writes an empty value.** A value the console does not know (the
@@ -177,7 +184,8 @@ the server toolchain in the badge).
 
 Changes before this changelog was introduced are in the git history.
 
-[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/ovander/oauth2-admin/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ovander/oauth2-admin/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ovander/oauth2-admin/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ovander/oauth2-admin/compare/v1.0.0...v1.1.0
