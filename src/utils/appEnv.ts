@@ -42,8 +42,11 @@ function oneLine(value: string): string {
  * buildAppEnv renders the SOCRATE_* variables an application's backend needs
  * (the names backendkit's integration guide uses), ready to paste into the
  * application's server-side .env. Comments sit on their own lines, since not
- * every .env parser accepts a trailing comment. The client secret is filled in
- * only when given; Socrate stores only its hash, so it is otherwise left empty.
+ * every .env parser accepts a trailing comment. A value the console does not
+ * know (the client secret, which Socrate stores only as a hash, or the issuer
+ * when it could not be read) is written as a commented-out line, never as an
+ * empty assignment: pasted over an existing .env, an empty `NAME=` would erase
+ * the working value.
  */
 export function buildAppEnv(
   app: Pick<App, 'id' | 'name' | 'client_id' | 'is_public'>,
@@ -54,13 +57,22 @@ export function buildAppEnv(
     `# Socrate: ${oneLine(app.name)} (app ID ${app.id})`,
     '# Server-side only; keep this file out of version control.',
   ]
-  if (!issuer) {
-    lines.push('# Fill in Socrate\'s public URL (the issuer), e.g. https://socrate.example.com')
+  if (issuer) {
+    lines.push(
+      `SOCRATE_ISSUER=${issuer}`,
+      `SOCRATE_BASE_URL=${issuer}`,
+      `SOCRATE_JWKS_URL=${issuer}/.well-known/jwks.json`,
+    )
+  } else {
+    lines.push(
+      '# Socrate\'s public URL (the issuer) could not be read: keep your values, or fill them in,',
+      '# e.g. https://socrate.example.com and https://socrate.example.com/.well-known/jwks.json',
+      '# SOCRATE_ISSUER=',
+      '# SOCRATE_BASE_URL=',
+      '# SOCRATE_JWKS_URL=',
+    )
   }
   lines.push(
-    `SOCRATE_ISSUER=${issuer}`,
-    `SOCRATE_BASE_URL=${issuer}`,
-    `SOCRATE_JWKS_URL=${issuer ? issuer + '/.well-known/jwks.json' : ''}`,
     '# Loopback admin API: the SSH tunnel on the apps host, or http://127.0.0.1:8082 on the Socrate host.',
     `SOCRATE_ADMIN_BASE_URL=${oneLine(opts.adminBaseUrl ?? DEFAULT_ADMIN_BASE_URL)}`,
     `SOCRATE_CLIENT_ID=${oneLine(app.client_id)}`,
@@ -69,10 +81,14 @@ export function buildAppEnv(
     lines.push('# Public client: no client secret (PKCE on every authorization request).')
   } else {
     const secret = oneLine(opts.clientSecret ?? '')
-    if (!secret) {
-      lines.push('# Shown once, at creation or rotation. Rotate the secret to get a new one.')
+    if (secret) {
+      lines.push(`SOCRATE_CLIENT_SECRET=${secret}`)
+    } else {
+      lines.push(
+        '# The client secret is shown once, at creation or rotation: keep the value you have.',
+        '# SOCRATE_CLIENT_SECRET=',
+      )
     }
-    lines.push(`SOCRATE_CLIENT_SECRET=${secret}`)
   }
   lines.push(`SOCRATE_APP_ID=${app.id}`)
   return lines.join('\n') + '\n'

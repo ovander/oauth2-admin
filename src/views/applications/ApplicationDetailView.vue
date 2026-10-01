@@ -223,7 +223,7 @@
                     <template v-if="!app.is_public">
                       {{ newSecret
                         ? 'It includes the new client secret shown above.'
-                        : 'The client secret is left empty: Socrate keeps only its hash.' }}
+                        : 'The client secret is commented out (Socrate keeps only its hash): keep the value you have.' }}
                     </template>
                   </p>
                 </div>
