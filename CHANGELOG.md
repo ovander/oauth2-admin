@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Fixed
+
+- Tests: `authService.spec.ts`'s 401 test stubs the redirect to Login, as `api.interceptor.spec.ts`
+  does. The real navigation lazy-loaded route views that could finish after the test file's
+  environment was torn down, failing CI with an `EnvironmentTeardownError` although every test
+  passed. The test now also asserts the redirect.
+
 ## [1.3.0] - 2026-09-30
 
 Minor release. The application settings and create forms set the page an application's
