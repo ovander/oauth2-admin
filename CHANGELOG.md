@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Fixed
+
+- **The "Copy .env block" never writes an empty value.** A value the console does not know (the
+  client secret, which Socrate stores only as a hash, and Socrate's URLs when the server
+  configuration could not be read) was written as an empty assignment such as
+  `SOCRATE_CLIENT_SECRET=`; pasted over an application's existing `.env`, it erased the working
+  value. Such a value is now a commented-out line (`# SOCRATE_CLIENT_SECRET=`) with a note to keep
+  the existing value. Found during the Ascenda migration.
+
 ## [1.3.0] - 2026-09-30
 
 Minor release. The application settings and create forms set the page an application's

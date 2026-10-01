@@ -22,17 +22,17 @@ describe('buildAppEnv', () => {
       SOCRATE_JWKS_URL: 'https://socrate.example.com/.well-known/jwks.json',
       SOCRATE_ADMIN_BASE_URL: DEFAULT_ADMIN_BASE_URL,
       SOCRATE_CLIENT_ID: 'cid-123',
-      SOCRATE_CLIENT_SECRET: '',
       SOCRATE_APP_ID: '3',
     })
+    expect(env).toContain('\n# SOCRATE_CLIENT_SECRET=\n')
     expect(env.endsWith('\n')).toBe(true)
   })
 
   it('fills the secret only when given', () => {
     const env = buildAppEnv(confidential, { issuer: 'https://socrate.example.com', clientSecret: 's3cr3t' })
     expect(vars(env).SOCRATE_CLIENT_SECRET).toBe('s3cr3t')
-    expect(env).not.toContain('Shown once')
-    expect(buildAppEnv(confidential)).toContain('# Shown once')
+    expect(env).not.toContain('# SOCRATE_CLIENT_SECRET=')
+    expect(buildAppEnv(confidential)).toContain('# The client secret is shown once')
   })
 
   it('omits the secret for a public client, even if one is passed', () => {
@@ -42,12 +42,28 @@ describe('buildAppEnv', () => {
     expect(env).toContain('# Public client')
   })
 
-  it('leaves the URLs empty with a hint when the issuer is unknown', () => {
+  it('comments the URLs out when the issuer is unknown', () => {
     const env = buildAppEnv(confidential, { issuer: 'not a url' })
     const v = vars(env)
-    expect(v.SOCRATE_ISSUER).toBe('')
-    expect(v.SOCRATE_JWKS_URL).toBe('')
-    expect(env).toContain("# Fill in Socrate's public URL")
+    expect(v).not.toHaveProperty('SOCRATE_ISSUER')
+    expect(v).not.toHaveProperty('SOCRATE_BASE_URL')
+    expect(v).not.toHaveProperty('SOCRATE_JWKS_URL')
+    expect(env).toContain('\n# SOCRATE_ISSUER=\n')
+    expect(env).toContain('could not be read')
+  })
+
+  // Pasted over an existing .env, an empty NAME= would erase the working value.
+  it('never writes an empty assignment', () => {
+    for (const env of [
+      buildAppEnv(confidential),
+      buildAppEnv(confidential, { issuer: '' }),
+      buildAppEnv({ ...confidential, is_public: true }),
+      buildAppEnv(confidential, { issuer: 'https://socrate.example.com', clientSecret: 's' }),
+    ]) {
+      for (const line of env.trim().split('\n')) {
+        if (!line.startsWith('#')) expect(line).toMatch(/^[A-Z_]+=.+$/)
+      }
+    }
   })
 
   it('keeps comments on their own lines and a name from adding a variable', () => {

@@ -85,16 +85,16 @@ describe('ApplicationDetailView', () => {
       SOCRATE_ISSUER: 'https://socrate.example.com',
       SOCRATE_JWKS_URL: 'https://socrate.example.com/.well-known/jwks.json',
       SOCRATE_CLIENT_ID: 'cid-ascenda',
-      SOCRATE_CLIENT_SECRET: '',
       SOCRATE_APP_ID: '3',
     })
+    expect(env).not.toHaveProperty('SOCRATE_CLIENT_SECRET')
   })
 
   it('still copies the block when the server config is unavailable', async () => {
     const wrapper = await mountView(null)
     await wrapper.find('[data-test="copy-env"]').trigger('click')
     const env = copiedEnv()
-    expect(env.SOCRATE_ISSUER).toBe('')
+    expect(env).not.toHaveProperty('SOCRATE_ISSUER')
     expect(env.SOCRATE_APP_ID).toBe('3')
   })
 
