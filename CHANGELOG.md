@@ -14,6 +14,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
   `SOCRATE_CLIENT_SECRET=`; pasted over an application's existing `.env`, it erased the working
   value. Such a value is now a commented-out line (`# SOCRATE_CLIENT_SECRET=`) with a note to keep
   the existing value. Found during the Ascenda migration.
+- Tests: `authService.spec.ts`'s 401 test stubs the redirect to Login, as `api.interceptor.spec.ts`
+  does. The real navigation lazy-loaded route views that could finish after the test file's
+  environment was torn down, failing CI with an `EnvironmentTeardownError` although every test
+  passed. The test now also asserts the redirect.
 
 ## [1.3.0] - 2026-09-30
 
