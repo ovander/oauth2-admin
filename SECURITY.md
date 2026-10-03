@@ -74,7 +74,8 @@ cd bff && go vet ./... && go test -race ./... && golangci-lint run ./...
   `BFF_ALLOW_PASSTHROUGH` are logged as startup warnings. `BFF_COOKIE_SECURE=false` on an
   `https://` origin and non-positive session lifetimes are rejected.
 - **Strict allowlist, never an open proxy.** `/bff/*`, `/api/admin/*`, `/api/apps/*`,
-  `/api/profile`, `GET /api/version` and the two public password-reset posts; everything else is
+  `/api/profile`, the five MFA self-service routes under `/api/profile/mfa`, `GET /api/version` and
+  the two public password-reset posts; everything else is
   404. Non-canonical paths (including percent-encoded dot-segments) are refused before matching.
 - **Unauthenticated routes, each for a reason.** `GET /bff/healthz` (liveness), `/bff/login` and
   `/bff/callback` (sign-in), `GET /bff/session` (answers `authenticated: false`),

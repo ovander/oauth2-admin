@@ -65,6 +65,7 @@ where the file lives at `/etc/socrate/admin-bff.env`.
 | `/api/admin/*` | session cookie (+ CSRF on unsafe methods), bearer injected | admin API |
 | `/api/apps/*` (app-scoped users and activity) | same | admin API |
 | `/api/profile` | same | issuer |
+| `GET /api/profile/mfa`, `POST /api/profile/mfa/{enroll,confirm,recovery-codes,disable}` | same: MFA self-service, each method and path listed | issuer |
 | `GET /api/version` | none (public probe) | issuer |
 | `POST /api/auth/request-password-reset`, `POST /api/auth/reset-password` | none: pre-auth flows; the browser's cookie and `Authorization` header are dropped | issuer |
 

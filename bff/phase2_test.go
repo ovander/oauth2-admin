@@ -108,12 +108,13 @@ func phase2Harness(t *testing.T) (http.Handler, *app, *capture, *revokeCapture, 
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Authenticated issuer self-service: echo back what the BFF forwarded so
 		// the test can assert the injected bearer + stripped cookie.
-		if r.URL.Path == "/api/profile" {
+		if r.URL.Path == "/api/profile" || strings.HasPrefix(r.URL.Path, "/api/profile/mfa") {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"auth":   r.Header.Get("Authorization"),
 				"cookie": r.Header.Get("Cookie"),
 				"method": r.Method,
+				"path":   r.URL.Path,
 			})
 			return
 		}
@@ -534,4 +535,58 @@ func hasAll(have []string, want ...string) bool {
 		}
 	}
 	return true
+}
+
+// The MFA self-service routes are allowlisted one method and path at a time:
+// each reaches the issuer with the session's bearer, the POSTs need the CSRF
+// token, and nothing else under /api/profile/ is forwarded.
+func TestIssuerMFAProxy(t *testing.T) {
+	h, a, _, _, accessJWT, _ := phase2Harness(t)
+	sid := bff.RandomToken(16)
+	ts := &socrate.TokenSet{AccessToken: accessJWT, RefreshToken: "refresh-1", ExpiresIn: 300}
+	a.store.Put(bff.NewSession(sid, "csrf-1", ts, bff.UserInfo{Sub: "user-1"}, time.Now()))
+	cookie := &http.Cookie{Name: a.cookieName(), Value: sid}
+
+	do := func(method, path, csrf string, withCookie bool) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(method, path, strings.NewReader(`{"code":"123456"}`))
+		if withCookie {
+			req.AddCookie(cookie)
+		}
+		if csrf != "" {
+			req.Header.Set("X-CSRF-Token", csrf)
+		}
+		h.ServeHTTP(rr, req)
+		return rr
+	}
+
+	rr := do(http.MethodGet, "/api/profile/mfa", "", true)
+	var got struct{ Auth, Path string }
+	_ = json.Unmarshal(rr.Body.Bytes(), &got)
+	if rr.Code != http.StatusOK || got.Auth != "Bearer "+accessJWT || got.Path != "/api/profile/mfa" {
+		t.Fatalf("GET /api/profile/mfa = %d %+v, want 200 with the session bearer", rr.Code, got)
+	}
+
+	for _, p := range []string{"/api/profile/mfa/enroll", "/api/profile/mfa/confirm", "/api/profile/mfa/recovery-codes", "/api/profile/mfa/disable"} {
+		if rr := do(http.MethodPost, p, "", true); rr.Code != http.StatusForbidden {
+			t.Errorf("POST %s without CSRF = %d, want 403", p, rr.Code)
+		}
+		rr := do(http.MethodPost, p, "csrf-1", true)
+		_ = json.Unmarshal(rr.Body.Bytes(), &got)
+		if rr.Code != http.StatusOK || got.Path != p {
+			t.Errorf("POST %s with CSRF = %d (path %q), want 200 reaching the issuer", p, rr.Code, got.Path)
+		}
+	}
+
+	if rr := do(http.MethodGet, "/api/profile/mfa", "", false); rr.Code != http.StatusUnauthorized {
+		t.Errorf("GET /api/profile/mfa without a session = %d, want 401", rr.Code)
+	}
+	for _, p := range []string{"/api/profile/mfa/other", "/api/profile/avatar", "/api/profile/mfa/enroll/x"} {
+		if rr := do(http.MethodPost, p, "csrf-1", true); rr.Code != http.StatusNotFound {
+			t.Errorf("POST %s = %d, want 404 (not allowlisted)", p, rr.Code)
+		}
+	}
+	if rr := do(http.MethodDelete, "/api/profile/mfa/disable", "csrf-1", true); rr.Code == http.StatusOK {
+		t.Errorf("DELETE /api/profile/mfa/disable was forwarded; only POST is allowlisted")
+	}
 }

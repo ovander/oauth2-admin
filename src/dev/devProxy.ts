@@ -38,6 +38,8 @@ export function devProxy(): Record<string, DevProxyEntry> {
     '^/api/apps/':              bff,
     // Profile self-service: the BFF injects the bearer and checks CSRF.
     '^/api/profile(?:\\?|$)':   bff,
+    // MFA self-service (status, enroll, confirm, recovery codes, disable).
+    '^/api/profile/mfa(?:/|\\?|$)': bff,
     // Public version probe and the two pre-auth password-reset posts (P3-23);
     // the rest of /api/auth is not forwarded in production either.
     '^/api/version(?:\\?|$)':   bff,
