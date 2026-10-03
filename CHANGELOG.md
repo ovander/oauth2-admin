@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Added
+- **Two-factor authentication in My Profile.** An operator can turn on MFA: the console shows the
+  authenticator key (with an `otpauth://` link), confirms a code, then shows the recovery codes
+  once. When it is on, the card shows how many recovery codes are left, generates new ones, and
+  turns MFA off with the password and a code. Nothing is stored in the browser. The BFF allowlists
+  the five issuer routes one by one (`GET /api/profile/mfa`,
+  `POST /api/profile/mfa/{enroll,confirm,recovery-codes,disable}`, CSRF on the POSTs), and the
+  Caddy `@bff` matcher and the dev proxy forward `/api/profile/mfa` and `/api/profile/mfa/*`.
+  Needs Socrate v1.7.1, whose sign-in page asks for the code.
+
 ## [1.4.0] - 2026-10-01
 
 Minor release. The "Copy .env block" never writes an empty value: a value the console does not

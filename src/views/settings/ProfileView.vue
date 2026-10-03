@@ -80,6 +80,9 @@
           />
         </div>
 
+        <!-- Two-factor authentication -->
+        <MfaCard />
+
         <!-- Active Sessions -->
         <div class="card">
           <div class="px-6 py-4 border-b border-gray-100 dark:border-brand-800">
@@ -198,6 +201,7 @@ import InputText from 'primevue/inputtext'
 import Button from 'primevue/button'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import MfaCard from '@/components/security/MfaCard.vue'
 import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/composables/useToast'
 import * as authService from '@/services/authService'

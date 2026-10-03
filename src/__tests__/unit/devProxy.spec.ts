@@ -48,7 +48,8 @@ describe('devProxy()', () => {
   it('sends the paths the SPA calls to the BFF', () => {
     for (const url of [
       '/bff/session', '/bff/login', '/api/admin/stats', '/api/apps/7/users', '/api/apps/7/logs?page=2',
-      '/api/profile', '/api/version', '/api/version?t=1700000000000',
+      '/api/profile', '/api/profile/mfa', '/api/profile/mfa/enroll', '/api/profile/mfa/recovery-codes',
+      '/api/version', '/api/version?t=1700000000000',
       '/api/auth/request-password-reset', '/api/auth/reset-password',
     ]) {
       expect(targetOf(url), url).toBe(DEV_BFF_TARGET)

@@ -90,6 +90,15 @@ func (a *app) handler() http.Handler {
 		// the BFF never becomes an open proxy to the issuer. Profile read/update
 		// live on the issuer (:8080), not the admin API.
 		mux.HandleFunc("/api/profile", a.gateway.ProxyWithSession(a.issuerProxy))
+		// MFA self-service on the issuer: each method and path explicitly, so
+		// nothing else under /api/profile/ is reachable. CSRF is checked on the
+		// POSTs by the gateway like every unsafe method.
+		mfa := a.gateway.ProxyWithSession(a.issuerProxy)
+		mux.HandleFunc("GET /api/profile/mfa", mfa)
+		mux.HandleFunc("POST /api/profile/mfa/enroll", mfa)
+		mux.HandleFunc("POST /api/profile/mfa/confirm", mfa)
+		mux.HandleFunc("POST /api/profile/mfa/recovery-codes", mfa)
+		mux.HandleFunc("POST /api/profile/mfa/disable", mfa)
 
 		// Admin API: session→token injection via the shared gateway.
 		mux.HandleFunc("/api/admin/", a.gateway.ProxyWithSession(a.adminProxy))

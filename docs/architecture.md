@@ -68,6 +68,7 @@ refresh, revocation, `/api/profile`, `/api/version`, password reset) go over loo
 | `*`    | `/api/admin/*`  | Inject the bearer, proxy to the admin API (SSE-aware) |
 | `*`    | `/api/apps/*`   | Same, for the app-scoped users and activity routes of the admin API |
 | `*`    | `/api/profile`  | Inject the bearer, proxy to the issuer (profile self-service) |
+| `GET`, `POST` | `/api/profile/mfa`, `/api/profile/mfa/{enroll,confirm,recovery-codes,disable}` | Same, for MFA self-service; each method and path listed |
 | `GET`  | `/api/version`  | Public version probe, proxied to the issuer |
 | `POST` | `/api/auth/request-password-reset`, `/api/auth/reset-password` | Public pre-auth flows, proxied to the issuer without the cookie or any `Authorization` header |
 | `GET`  | `/bff/healthz`  | Liveness |
