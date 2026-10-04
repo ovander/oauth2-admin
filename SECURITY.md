@@ -162,6 +162,6 @@ See [deploy/README.md](deploy/README.md) for the Caddy site, systemd unit and sc
   (`0640 root:socrate-admin-bff`), readable by root and the BFF's own service user only.
 - The BFF runs as its own user (`socrate-admin-bff`), not as the identity server's, and its
   systemd unit hides Socrate's signing keys and env files.
-- The BFF is built, tested and shipped with one Go: `toolchain go1.27.1` in `bff/go.mod` and
+- The BFF is built, tested and shipped with one Go: `go 1.27.1` in `bff/go.mod` and
   `golang:1.27.1-alpine` in `bff/Dockerfile`. CI builds with the go.mod pin and fails if the
   Dockerfile's image drifts from it.
