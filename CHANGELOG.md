@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-04
+
+Minor release. Operators can turn on two-factor authentication from My Profile, and the BFF
+declares Go 1.27.1. **Deploy notes:** add `/api/profile/mfa /api/profile/mfa/*` to the `@bff`
+matcher of the admin Caddy site (as in `deploy/Caddyfile`), otherwise the MFA card cannot load its
+status. Needs Socrate v1.7.1 or later. No BFF environment variable or CSP change.
+
 ### Changed
 - **The BFF declares Go 1.27.1** (`go 1.27.1` in `bff/go.mod`; was `go 1.25.0` with
   `toolchain go1.27.1`, which `go mod tidy` now drops as redundant). Its language level and
@@ -202,7 +209,8 @@ the server toolchain in the badge).
 
 Changes before this changelog was introduced are in the git history.
 
-[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/ovander/oauth2-admin/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/ovander/oauth2-admin/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ovander/oauth2-admin/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ovander/oauth2-admin/compare/v1.1.0...v1.2.0
