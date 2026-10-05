@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-05
+
+Minor release. Applications such as Lakebridge can be defined from the console: confidential
+applications are created with **Require PKCE** (on by default), and a *Token settings* section edits
+audiences, allowed scopes, custom claims and the access-token lifetime; the user page edits the
+attributes those claims project (e.g. `tenant_id`). **Deploy notes:** no BFF environment variable,
+Caddy or CSP change. Needs Socrate v1.8.0 or later; audiences reach tokens only with
+`AUDIENCE_MODE=dual`.
+
 ### Added
 - **Token settings for applications**, so an application such as Lakebridge can be defined from the
   console. Creating a confidential application now offers **Require PKCE** (on by default; Socrate
@@ -223,7 +232,8 @@ the server toolchain in the badge).
 
 Changes before this changelog was introduced are in the git history.
 
-[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/ovander/oauth2-admin/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/ovander/oauth2-admin/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/ovander/oauth2-admin/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ovander/oauth2-admin/compare/v1.2.0...v1.3.0
