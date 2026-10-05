@@ -11,6 +11,7 @@ export interface GlobalUser {
   role: GlobalUserRole  // Global role (superadmin manages server, user can be admin/user in apps)
   is_verified: boolean
   created_at: string
+  attributes?: Record<string, unknown>  // free-form; reaches tokens only through a client's claim mapping
 }
 
 export interface GlobalUserListResponse {

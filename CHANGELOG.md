@@ -6,6 +6,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Added
+- **Token settings for applications**, so an application such as Lakebridge can be defined from the
+  console. Creating a confidential application now offers **Require PKCE** (on by default; Socrate
+  does not allow changing it later, and the form used to create every confidential app without it).
+  A new *Token settings* section, on creation and as a card on the application's Settings tab,
+  edits the audiences (added to `aud` when Socrate runs `AUDIENCE_MODE=dual`), the allowed scopes,
+  the custom claims (claim mappings, issued under Socrate's claims namespace, e.g.
+  `https://socrate/tenant_id`) and the access-token lifetime. The card sends only what changed.
+  Claim sources, claim names, scopes and the lifetime are checked as Socrate checks them.
+- **User attributes** on the user detail page: edit the free-form attributes that claim mappings
+  project into tokens (e.g. `tenant_id`). Saving replaces the whole set; non-string values are
+  edited as JSON and keep their type; Socrate's limits (32 attributes, 4 KB, names of 64
+  characters) are checked before sending.
+
 ## [1.5.0] - 2026-10-04
 
 Minor release. Operators can turn on two-factor authentication from My Profile, and the BFF

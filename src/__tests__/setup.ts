@@ -29,6 +29,11 @@ config.global.stubs = {
     props: ['modelValue'],
     emits: ['update:modelValue'],
   },
+  InputNumber: {
+    template: '<input type="number" v-bind="$attrs" :value="modelValue ?? \'\'" @input="$emit(\'update:modelValue\', $event.target.value === \'\' ? null : Number($event.target.value))" />',
+    props: ['modelValue', 'min', 'max', 'useGrouping', 'inputId'],
+    emits: ['update:modelValue'],
+  },
   Password: {
     template: '<input type="password" v-bind="$attrs" @input="$emit(\'update:modelValue\', $event.target.value)" />',
     props: ['modelValue', 'feedback', 'toggleMask'],

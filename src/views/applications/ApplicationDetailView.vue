@@ -250,10 +250,32 @@
                           ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
                           : 'bg-gray-100 text-gray-600 dark:bg-brand-800 dark:text-brand-400'"
                       >{{ app.require_pkce ? 'Yes' : 'No' }}</span>
-                      <span v-if="app.is_public" class="ml-1 text-xs text-gray-400 dark:text-brand-500">(immutable on public clients)</span>
+                      <span class="ml-1 text-xs text-gray-400 dark:text-brand-500">(set at creation, cannot be changed)</span>
                     </p>
                   </div>
                 </div>
+              </div>
+
+              <!-- Token settings -->
+              <div class="card p-6 lg:col-span-2" data-testid="token-settings-card">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">Token settings</h3>
+                <p class="text-sm text-gray-500 dark:text-brand-400 mb-4">
+                  What this application's tokens carry: extra audiences, the scopes it may request, custom claims and
+                  the access-token lifetime.
+                </p>
+                <form class="space-y-4" @submit.prevent="saveTokenSettings">
+                  <TokenSettingsFields
+                    v-model:audiences="tokenForm.audiences"
+                    v-model:scopes="tokenForm.scopes"
+                    v-model:claims="tokenForm.claims"
+                    v-model:ttl="tokenForm.ttl"
+                    :disabled="savingTokens"
+                  />
+                  <Message v-if="tokenError" severity="error" :closable="false" data-testid="token-settings-error">{{ tokenError }}</Message>
+                  <div class="pt-4 border-t border-gray-100 dark:border-brand-800">
+                    <Button type="submit" label="Save token settings" icon="pi pi-check" :loading="savingTokens" data-testid="token-settings-save" />
+                  </div>
+                </form>
               </div>
             </div>
           </TabPanel>
@@ -742,6 +764,7 @@ import TabPanel from 'primevue/tabpanel'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Dialog from 'primevue/dialog'
+import Message from 'primevue/message'
 import LoadingState from '@/components/ui/LoadingState.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { useToast } from '@/composables/useToast'
@@ -762,6 +785,17 @@ import type { App, AppUser, AppActivityLog, AppUserRole } from '@/types/applicat
 import { getServerConfig } from '@/services/settingsService'
 import { getErrorMessage } from '@/services/api'
 import { buildAppEnv } from '@/utils/appEnv'
+import TokenSettingsFields from '@/components/applications/TokenSettingsFields.vue'
+import {
+  mappingsToRows,
+  parseList,
+  rowsToMappings,
+  sameList,
+  sameMappings,
+  ttlError,
+  unsupportedScopes,
+  type ClaimRow,
+} from '@/utils/tokenSettings'
 
 const route = useRoute()
 const router = useRouter()
@@ -809,6 +843,22 @@ const editForm = reactive({
   redirect_uris: [''],
   magic_link_url: ''
 })
+// Token settings, edited and saved apart from the details form.
+const tokenForm = reactive({
+  audiences: '',
+  scopes: '',
+  claims: [] as ClaimRow[],
+  ttl: null as number | null
+})
+const savingTokens = ref(false)
+const tokenError = ref('')
+
+function resetTokenForm(a: App) {
+  tokenForm.audiences = (a.audiences ?? []).join(' ')
+  tokenForm.scopes = (a.allowed_scopes ?? []).join(' ')
+  tokenForm.claims = mappingsToRows(a.claim_mappings)
+  tokenForm.ttl = a.access_token_ttl_seconds ?? null
+}
 // Socrate's validation message for the magic-link page, shown under the field.
 const magicLinkError = ref('')
 
@@ -868,6 +918,7 @@ async function loadApplication() {
     editForm.url = app.value.url || ''
     editForm.redirect_uris = app.value.redirect_uris?.length ? [...app.value.redirect_uris] : ['']
     editForm.magic_link_url = app.value.magic_link_url || ''
+    resetTokenForm(app.value)
   } catch (error) {
     console.error('Load app error:', error)
     app.value = null
@@ -902,6 +953,44 @@ async function loadActivityLogs() {
     console.error('Load logs error:', error)
   } finally {
     loadingLogs.value = false
+  }
+}
+
+// saveTokenSettings sends only what changed: for each field, omitted leaves it
+// as it is on the server and an empty value clears it (0 for the lifetime).
+async function saveTokenSettings() {
+  if (!app.value) return
+  tokenError.value = ''
+  const audiences = parseList(tokenForm.audiences)
+  const scopes = parseList(tokenForm.scopes)
+  const { mappings, errors } = rowsToMappings(tokenForm.claims)
+  const ttlMessage = ttlError(tokenForm.ttl)
+  if (unsupportedScopes(scopes).length || Object.keys(errors).length || ttlMessage) {
+    tokenError.value = ttlMessage || 'Fix the fields marked above.'
+    return
+  }
+  const changes = {
+    ...(!sameList(audiences, app.value.audiences) ? { audiences } : {}),
+    ...(!sameList(scopes, app.value.allowed_scopes) ? { allowed_scopes: scopes } : {}),
+    ...(!sameMappings(mappings, app.value.claim_mappings) ? { claim_mappings: mappings } : {}),
+    ...((tokenForm.ttl ?? null) !== (app.value.access_token_ttl_seconds ?? null)
+      ? { access_token_ttl_seconds: tokenForm.ttl ?? 0 } : {})
+  }
+  if (Object.keys(changes).length === 0) {
+    showSuccess('No changes to save')
+    return
+  }
+  savingTokens.value = true
+  try {
+    const updated = await updateApp(app.value.id, changes)
+    app.value = { ...app.value, ...updated }
+    resetTokenForm(app.value)
+    showSuccess('Token settings saved')
+  } catch (error: unknown) {
+    tokenError.value = getErrorMessage(error) || 'Failed to save the token settings'
+    showError(tokenError.value)
+  } finally {
+    savingTokens.value = false
   }
 }
 

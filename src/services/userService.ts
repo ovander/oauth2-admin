@@ -35,6 +35,17 @@ export async function getUser(id: number): Promise<GlobalUser> {
 }
 
 /**
+ * PUT /api/admin/users/{id}/attributes
+ * Replace the user's free-form attributes (global admin, audited by name).
+ * The body replaces the whole set: {} clears it. An attribute reaches a token
+ * only through a client's claim mapping (user.attributes.<name>).
+ */
+export async function updateUserAttributes(id: number, attributes: Record<string, unknown>): Promise<GlobalUser> {
+  const response = await api.put<GlobalUser>(`/api/admin/users/${id}/attributes`, { attributes })
+  return response.data
+}
+
+/**
  * GET /api/admin/users/{id}/apps
  * Get all apps a user belongs to with their roles
  */
