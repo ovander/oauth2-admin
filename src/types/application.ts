@@ -14,7 +14,24 @@ export interface App {
   is_public: boolean       // true = public client (SPA/mobile), no secret
   require_pkce: boolean    // always true when is_public; optional for confidential
   magic_link_url?: string  // page magic-link emails open (Socrate v1.6.0+); absent = not configured
+  // Token settings (Socrate A2 / RFC-001 / v1.8.0). Absent on older servers.
+  audiences?: string[]               // added to the token's aud after client_id when AUDIENCE_MODE=dual
+  allowed_scopes?: string[]          // the only scopes the client may request; empty = unrestricted
+  claim_mappings?: ClaimMappings     // custom claims, issued under Socrate's CLAIMS_NAMESPACE
+  access_token_ttl_seconds?: number  // shorter access-token lifetime for this client; absent = server default
 }
+
+/** ClaimTarget is the token(s) a mapped claim is written to. */
+export type ClaimTarget = 'access' | 'id' | 'both'
+
+/**
+ * ClaimMapping projects one server-held value into a token claim: either the
+ * source string (target "access") or the object form.
+ */
+export type ClaimMapping = string | { source: string; target?: ClaimTarget }
+
+/** ClaimMappings is keyed by the unqualified claim name. */
+export type ClaimMappings = Record<string, ClaimMapping>
 
 // Returned only on create or rotate-secret
 export interface AppWithSecret extends App {
@@ -31,7 +48,12 @@ export interface CreateAppRequest {
   url?: string
   redirect_uris?: string[]
   is_public?: boolean  // true = public client; require_pkce auto-set server-side
+  require_pkce?: boolean  // confidential clients only; cannot be changed after creation
   magic_link_url?: string
+  audiences?: string[]
+  allowed_scopes?: string[]
+  claim_mappings?: ClaimMappings
+  access_token_ttl_seconds?: number
 }
 
 export interface UpdateAppRequest {
@@ -40,6 +62,11 @@ export interface UpdateAppRequest {
   redirect_uris?: string[]
   active?: boolean
   magic_link_url?: string  // '' clears it; omitted leaves it unchanged
+  // For each of these, omitted leaves it unchanged and an empty value clears it.
+  audiences?: string[]
+  allowed_scopes?: string[]
+  claim_mappings?: ClaimMappings
+  access_token_ttl_seconds?: number  // 0 clears it
 }
 
 // ============================================================================

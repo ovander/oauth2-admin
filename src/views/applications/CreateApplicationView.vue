@@ -297,6 +297,16 @@
           </label>
         </div>
 
+        <!-- Require PKCE (confidential clients; public clients always require it) -->
+        <div v-if="!form.is_public" class="flex items-start gap-3">
+          <Checkbox v-model="form.require_pkce" inputId="require_pkce" :binary="true" :disabled="submitting" data-testid="require-pkce" />
+          <label for="require_pkce" class="text-sm text-gray-700 dark:text-gray-300 cursor-pointer leading-5">
+            <span class="font-medium">Require PKCE</span>
+            <span class="text-gray-500 dark:text-brand-400"> — the token endpoint refuses a code without its code_verifier.
+              Recommended; it cannot be changed after the application is created.</span>
+          </label>
+        </div>
+
         <!-- PKCE info banner (shown when is_public is checked) -->
         <div v-if="form.is_public" class="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <div class="flex items-start gap-3">
@@ -307,6 +317,29 @@
               (<a href="https://www.rfc-editor.org/rfc/rfc7636" target="_blank" rel="noopener noreferrer" class="underline">RFC 7636</a>).
             </p>
           </div>
+        </div>
+
+        <!-- Token settings -->
+        <div class="pt-4 border-t border-gray-100 dark:border-brand-800">
+          <button
+            type="button"
+            class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300"
+            :aria-expanded="showTokenSettings"
+            data-testid="token-settings-toggle"
+            @click="showTokenSettings = !showTokenSettings"
+          >
+            <i :class="showTokenSettings ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></i>
+            Token settings: audiences, scopes, custom claims, lifetime
+          </button>
+          <TokenSettingsFields
+            v-if="showTokenSettings"
+            v-model:audiences="tokenSettings.audiences"
+            v-model:scopes="tokenSettings.scopes"
+            v-model:claims="tokenSettings.claims"
+            v-model:ttl="tokenSettings.ttl"
+            :disabled="submitting"
+            class="mt-4"
+          />
         </div>
 
         <!-- Error Message -->
@@ -348,6 +381,8 @@ import { createApp } from '@/services/applicationService'
 import type { AppWithSecret } from '@/types/application'
 import { getServerConfig } from '@/services/settingsService'
 import { buildAppEnv } from '@/utils/appEnv'
+import TokenSettingsFields from '@/components/applications/TokenSettingsFields.vue'
+import { parseList, rowsToMappings, ttlError, unsupportedScopes, type ClaimRow } from '@/utils/tokenSettings'
 
 const { showSuccess, showError } = useToast()
 
@@ -364,7 +399,17 @@ const form = reactive({
   url: '',
   redirect_uris: [''],
   magic_link_url: '',
-  is_public: false
+  is_public: false,
+  // Confidential clients only (public ones always require it); fixed at creation.
+  require_pkce: true
+})
+
+const showTokenSettings = ref(false)
+const tokenSettings = reactive({
+  audiences: '',
+  scopes: '',
+  claims: [] as ClaimRow[],
+  ttl: null as number | null
 })
 
 const errors = reactive({
@@ -377,6 +422,15 @@ function validate(): boolean {
 
   if (!form.name.trim()) {
     errors.name = 'Application name is required'
+    return false
+  }
+
+  // The token settings show their own errors next to the fields.
+  const scopes = parseList(tokenSettings.scopes)
+  if (unsupportedScopes(scopes).length || Object.keys(rowsToMappings(tokenSettings.claims).errors).length ||
+      ttlError(tokenSettings.ttl)) {
+    showTokenSettings.value = true
+    error.value = 'Fix the token settings first.'
     return false
   }
 
@@ -395,21 +449,31 @@ function removeRedirectUri(index: number) {
 }
 
 async function handleSubmit() {
+  error.value = ''
   if (!validate()) return
 
-  error.value = ''
   submitting.value = true
 
   try {
     // Filter out empty redirect URIs
     const redirectUris = form.redirect_uris.filter(uri => uri.trim())
 
+    const audiences = parseList(tokenSettings.audiences)
+    const scopes = parseList(tokenSettings.scopes)
+    const { mappings } = rowsToMappings(tokenSettings.claims)
+
     const app = await createApp({
       name: form.name.trim(),
       url: form.url.trim() || undefined,
       redirect_uris: redirectUris.length > 0 ? redirectUris : undefined,
       is_public: form.is_public || undefined,  // omit when false (server default)
-      magic_link_url: form.magic_link_url.trim() || undefined
+      // Public clients always require PKCE server-side; a confidential one only when asked.
+      require_pkce: !form.is_public && form.require_pkce ? true : undefined,
+      magic_link_url: form.magic_link_url.trim() || undefined,
+      audiences: audiences.length ? audiences : undefined,
+      allowed_scopes: scopes.length ? scopes : undefined,
+      claim_mappings: Object.keys(mappings).length ? mappings : undefined,
+      access_token_ttl_seconds: tokenSettings.ttl ?? undefined
     })
 
     createdApp.value = app

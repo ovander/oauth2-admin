@@ -202,6 +202,9 @@
         </div>
       </div>
 
+      <!-- Attributes (projected into tokens by claim mappings) -->
+      <UserAttributesCard :user="user" class="mt-6" @updated="user = $event" />
+
       <!-- App Memberships Detail -->
       <div class="card p-6 mt-6">
         <div class="flex items-center justify-between mb-4">
@@ -439,6 +442,7 @@ import Column from 'primevue/column'
 import Dialog from 'primevue/dialog'
 import LoadingState from '@/components/ui/LoadingState.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import UserAttributesCard from '@/components/users/UserAttributesCard.vue'
 import { useToast } from '@/composables/useToast'
 import { getUser, getUserApps, revokeUserTokens, unlockUser, blockUser, deleteUser } from '@/services/userService'
 import { getUserSessions } from '@/services/monitoringService'
