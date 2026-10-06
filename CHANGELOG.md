@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-10-06
+
+Patch release: Vue 3.5.43 and source-map-js 1.2.2 close two high advisories. **Deploy notes:** no
+BFF environment variable, Caddy or CSP change.
+
 ### Security
 - **Vue 3.5.43** (was 3.5.29) and **source-map-js 1.2.2** (was 1.2.1), lockfile only: they close
   GHSA-g2v6-rqmx-r4w6 (`@vue/server-renderer`, XSS through an attribute name with a carriage
@@ -241,7 +246,8 @@ the server toolchain in the badge).
 
 Changes before this changelog was introduced are in the git history.
 
-[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/ovander/oauth2-admin/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/ovander/oauth2-admin/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/ovander/oauth2-admin/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/ovander/oauth2-admin/compare/v1.3.0...v1.4.0
