@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Security
+- **Vue 3.5.43** (was 3.5.29) and **source-map-js 1.2.2** (was 1.2.1), lockfile only: they close
+  GHSA-g2v6-rqmx-r4w6 (`@vue/server-renderer`, XSS through an attribute name with a carriage
+  return) and GHSA-68fv-2mgg-jv7q (`source-map-js`, denial of service through indexed source-map
+  offsets), both high, which made the `npm audit` gate fail on `main`. Patch releases of Babel,
+  PostCSS and nanoid come with them. No `package.json` change. Two moderate advisories in
+  `eslint-plugin-vue` (dev only, below the gate) need a major upgrade and are left for a separate
+  change.
+
 ## [1.6.0] - 2026-10-05
 
 Minor release. Applications such as Lakebridge can be defined from the console: confidential
