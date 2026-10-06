@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Changed
+
+- BFF: backendkit v1.15.0 → v1.21.0. The BFF code is unchanged and no exported identifier it uses
+  changed. The upgrade brings fail-closed handling of a `client_credentials` response without an
+  access token, the service-token expiry read from its `exp` claim, and a startup warning in
+  `jwtauth` when no audience is configured (the BFF does not use `jwtauth`).
+
 ## [1.6.1] - 2026-10-06
 
 Patch release: Vue 3.5.43 and source-map-js 1.2.2 close two high advisories. **Deploy notes:** no
