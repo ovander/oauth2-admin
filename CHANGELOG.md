@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-10-06
+
+Patch release: the BFF is built on backendkit v1.21.0 (was v1.15.0), with no BFF or SPA code
+change. **Deploy notes:** no BFF environment variable, Caddy or CSP change; works with any Socrate.
+
 ### Changed
 
 - BFF: backendkit v1.15.0 → v1.21.0. The BFF code is unchanged and no exported identifier it uses
@@ -253,7 +258,8 @@ the server toolchain in the badge).
 
 Changes before this changelog was introduced are in the git history.
 
-[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.6.2...HEAD
+[1.6.2]: https://github.com/ovander/oauth2-admin/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/ovander/oauth2-admin/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/ovander/oauth2-admin/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/ovander/oauth2-admin/compare/v1.4.0...v1.5.0
