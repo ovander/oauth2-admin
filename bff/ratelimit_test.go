@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/ovander/backendkit/bff"
 )
 
 func TestRateLimiterAllowsUpToLimitThenBlocks(t *testing.T) {
@@ -91,7 +93,7 @@ func TestClientIPPrefersXForwardedFor(t *testing.T) {
 func TestHandleLoginRateLimited(t *testing.T) {
 	a := &app{
 		cfg:          &Config{ClientID: "cid", OAuthPublicURL: "https://issuer.example", PublicOrigin: "https://admin.example", Scopes: "openid"},
-		logins:       newLoginStore(time.Minute),
+		logins:       bff.NewMemoryPendingLoginStore(time.Minute, 0),
 		loginLimiter: newRateLimiter(2, time.Minute),
 	}
 

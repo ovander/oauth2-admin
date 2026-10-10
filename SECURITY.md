@@ -87,7 +87,8 @@ cd bff && go vet ./... && go test -race ./... && golangci-lint run ./...
   headers or raw body.
 - **Login is bound to the browser.** `/bff/login` sets a nonce cookie stored with the pending
   state; `/bff/callback` completes only for the browser that presents it (login-CSRF and
-  session-swap defence). State is single-use.
+  session-swap defence). State is single-use and expires after 10 minutes; the pending-login
+  store is bounded (10,000), so `/bff/login` answers `503` rather than grow without limit.
 - **Fail-closed proxy.** No valid session ⇒ 401. Unsafe methods require the double-submit
   `X-CSRF-Token` (constant-time compare; an empty stored token never matches). Logout is
   state-changing and needs it too.

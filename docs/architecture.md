@@ -83,7 +83,7 @@ sequenceDiagram
     participant F as BFF
     participant S as Socrate issuer
     B->>F: GET /bff/login?return_to=/apps
-    F->>F: create PKCE verifier + state (single-use), set login-binding cookie
+    F->>F: create PKCE verifier + state, store pending login (single-use, 10 min, bounded), set login-binding cookie
     F-->>B: 302 → issuer /oauth/authorize?code_challenge=…
     B->>S: authenticate (password + MFA on hosted login)
     S-->>B: 302 → /bff/callback?code=…&state=…

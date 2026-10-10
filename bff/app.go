@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -23,8 +24,8 @@ type app struct {
 	store       bff.SessionStore
 	cookie      bff.CookieConfig
 	gateway     *bff.Gateway
-	logins      *loginStore
-	login       bff.LoginBinding // ties /bff/login to the browser that must finish it at /bff/callback
+	logins      bff.PendingLoginStore // in-flight logins by state: single-use, TTL- and size-bounded
+	login       bff.LoginBinding      // ties /bff/login to the browser that must finish it at /bff/callback
 	oauth       *oauthClient
 	issuerProxy *httputil.ReverseProxy // authenticated issuer self-service (e.g. /api/profile)
 
@@ -50,8 +51,9 @@ func newApp(cfg *Config) *app {
 	if cfg.Phase2Enabled() {
 		a.store = bff.NewMemoryStore(cfg.SessionIdle, cfg.SessionAbsolute)
 		a.cookie = bff.CookieConfig{Name: "admin_session", Secure: cfg.CookieSecure, MaxAge: int(cfg.SessionAbsolute.Seconds())}
-		a.logins = newLoginStore(10 * time.Minute)
-		a.login = bff.LoginBinding{Cookie: bff.CookieConfig{Name: "admin_login", Secure: cfg.CookieSecure}, TTL: 10 * time.Minute}
+		// The pending state and the browser binding expire together (10 min).
+		a.logins = bff.NewMemoryPendingLoginStore(bff.DefaultPendingLoginTTL, bff.DefaultMaxPendingLogins)
+		a.login = bff.LoginBinding{Cookie: bff.CookieConfig{Name: "admin_login", Secure: cfg.CookieSecure}, TTL: bff.DefaultPendingLoginTTL}
 		a.oauth = newOAuthClient(cfg.OAuthUpstream, cfg.ClientID, cfg.ClientSecret)
 		a.loginLimiter = newRateLimiter(cfg.LoginRate, rateWindow)
 		a.elevateLimiter = newRateLimiter(cfg.ElevateRate, rateWindow)
@@ -155,7 +157,7 @@ func (a *app) startBackground(ctx context.Context) {
 			case <-t.C:
 				if a.store != nil {
 					a.store.Sweep()
-					a.logins.sweep()
+					a.logins.Sweep(ctx)
 				}
 				a.loginLimiter.sweep()
 				a.elevateLimiter.sweep()
@@ -185,7 +187,19 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// the nonce cookie issued here, so a captured callback URL cannot log a
 	// different browser into the attacker's session.
 	nonce := a.login.Begin(w)
-	a.logins.put(state, pendingLogin{verifier: pkce.Verifier, returnTo: returnTo, nonce: nonce, created: time.Now()})
+	// Fail closed: never redirect to Socrate without the state stored, or the
+	// callback could not complete. The store is bounded because /bff/login
+	// needs no session; when it is full, new sign-ins wait for older ones to
+	// finish or expire.
+	if err := a.logins.Put(r.Context(), state, bff.PendingLogin{Verifier: pkce.Verifier, Nonce: nonce, ReturnTo: returnTo, Created: time.Now()}); err != nil {
+		log.Printf("login: store pending login: %v", err)
+		if errors.Is(err, bff.ErrPendingLoginsFull) {
+			http.Error(w, "too many sign-ins in progress, try again shortly", http.StatusServiceUnavailable)
+			return
+		}
+		http.Error(w, "could not start sign-in", http.StatusInternalServerError)
+		return
+	}
 
 	q := url.Values{}
 	q.Set("response_type", "code")
@@ -205,14 +219,14 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Single-use state: take+delete makes the callback single-shot …
-	pending, ok := a.logins.take(q.Get("state"))
+	pending, ok := a.logins.Take(r.Context(), q.Get("state"))
 	if !ok {
 		http.Error(w, "invalid or expired state", http.StatusBadRequest)
 		return
 	}
 	// … and the login-binding cookie proves this is the browser that started
 	// it (P3-15). Verify clears the cookie either way.
-	if !a.login.Verify(w, r, pending.nonce) {
+	if !a.login.Verify(w, r, pending.Nonce) {
 		http.Error(w, "login was not started by this browser", http.StatusBadRequest)
 		return
 	}
@@ -222,7 +236,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tr, err := a.oauth.exchange(r.Context(), code, a.redirectURI(), pending.verifier)
+	tr, err := a.oauth.exchange(r.Context(), code, a.redirectURI(), pending.Verifier)
 	if err != nil {
 		http.Error(w, "token exchange failed", http.StatusBadGateway)
 		return
@@ -241,7 +255,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	s := bff.NewSession(sid, csrf, ts, user, now)
 	a.store.Put(s)
 	a.cookie.SetSession(w, sid)
-	http.Redirect(w, r, pending.returnTo, http.StatusFound)
+	http.Redirect(w, r, pending.ReturnTo, http.StatusFound)
 }
 
 func (a *app) handleSession(w http.ResponseWriter, r *http.Request) {
