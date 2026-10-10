@@ -281,7 +281,7 @@ src/
 ### Prerequisites
 
 - Node.js 24 (the version in `.nvmrc`, which CI uses) and npm.
-- Go for the BFF: `bff/go.mod` declares `go 1.27.1`, which the Go command downloads for you
+- Go for the BFF: `bff/go.mod` declares `go 1.27.2`, which the Go command downloads for you
   (`GOTOOLCHAIN=auto`).
 - A reachable Socrate server with its issuer (by default `:8080`) and its loopback admin API
   (`:8081`).

@@ -9,7 +9,7 @@ project's licence, [Apache-2.0](LICENSE).
 ## Development setup
 
 Requirements: Node.js 24 (the version in `.nvmrc`, which CI uses), and Go for the BFF (the
-`toolchain` line in `bff/go.mod` makes the Go command download the exact version, 1.27.1).
+`toolchain` line in `bff/go.mod` makes the Go command download the exact version, 1.27.2).
 Signing in needs a reachable Socrate server with a confidential OAuth client registered for the
 BFF; the README's [Getting started](README.md#getting-started) walks through it.
 
@@ -58,7 +58,7 @@ npm run coverage                    # Vitest unit and integration tests, coverag
 npx playwright test                 # end-to-end (run `npx playwright install chromium` once)
 ./scripts/npm-audit-gate.sh         # fails on a high/critical advisory, or no audit data
 cd bff && go vet ./... && go test -race ./...
-cd bff && golangci-lint run ./...   # v2.14.0, built with Go 1.27.1
+cd bff && golangci-lint run ./...   # v2.14.0, built with Go 1.27.2
 ```
 
 - A new view or flow gets a unit test, and an e2e test when it crosses the BFF.
