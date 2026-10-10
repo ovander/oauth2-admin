@@ -4,7 +4,7 @@ module github.com/ovander/oauth2-admin/bff
 // GODEBUG defaults and, with no toolchain line, the toolchain (GOTOOLCHAIN=auto
 // fetches it). CI reads this line (go-version-file) and fails if it or
 // bff/Dockerfile's golang image drift apart.
-go 1.27.1
+go 1.27.2
 
 require github.com/ovander/backendkit v1.21.0
 

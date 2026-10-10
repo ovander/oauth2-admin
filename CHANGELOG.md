@@ -6,6 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Security
+- **The BFF is built with Go 1.27.2** (`go 1.27.2` in `bff/go.mod`, `golang:1.27.2-alpine`). Go 1.27.2
+  fixes eight standard-library vulnerabilities, in `net/http` and its HTTP/2 implementation among
+  them (e.g. GO-2026-6603, GO-2026-6605). The BFF binary links the standard library, so one built
+  with 1.27.1 carries them: rebuild and redeploy. No code change.
+
 ## [1.6.2] - 2026-10-06
 
 Patch release: the BFF is built on backendkit v1.21.0 (was v1.15.0), with no BFF or SPA code
