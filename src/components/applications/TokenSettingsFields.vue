@@ -35,7 +35,9 @@
       />
       <small v-if="scopesError" class="block text-error-600 text-xs mt-1" data-testid="ts-scopes-error">{{ scopesError }}</small>
       <small class="block text-gray-500 dark:text-brand-400 text-xs mt-1">
-        The only scopes this client may request (supported: {{ SUPPORTED_SCOPES.join(', ') }}).
+        The only scopes this client may request (supported: {{ SUPPORTED_SCOPES.join(', ') }}), plus
+        application scopes of the form <code>namespace:name</code> (e.g. <code>swingdrift:worker</code>),
+        which only the clients listing them can obtain.
         Empty means unrestricted. Applied according to Socrate's <code>SCOPE_POLICY_MODE</code>.
       </small>
     </div>
@@ -160,7 +162,7 @@ const TARGETS = [
 
 const scopesError = computed(() => {
   const bad = unsupportedScopes(parseList(scopes.value))
-  return bad.length ? `Not supported by Socrate: ${bad.join(', ')}` : ''
+  return bad.length ? `Not supported by Socrate: ${bad.join(', ')} (an application scope is namespace:name, lower case, outside a reserved namespace)` : ''
 })
 
 const claimErrors = computed(() => rowsToMappings(claims.value).errors)

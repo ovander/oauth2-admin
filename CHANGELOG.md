@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Added
+- Application token settings accept **application-defined scopes** in a client's allowed scopes,
+  `namespace:name` (e.g. `swingdrift:worker`), checked with the grammar and reserved namespaces
+  Socrate applies (ovander/go-oauth2#336), so an operator can grant one from the console. Other
+  unknown scopes are still flagged before saving. Needs a Socrate release with #336; an older
+  Socrate refuses the scope with a 400 on save. No BFF environment variable, Caddy or CSP change.
+
 ## [1.6.3] - 2026-10-10
 
 Security patch: the BFF is built with Go 1.27.2, which fixes eight standard-library
