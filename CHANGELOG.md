@@ -6,6 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-10-10
+
+Security patch: the BFF is built with Go 1.27.2, which fixes eight standard-library
+vulnerabilities (`net/http`, HTTP/2). No code change. **Deploy notes:** rebuild and redeploy; no BFF
+environment variable, Caddy or CSP change.
+
 ### Security
 - **The BFF is built with Go 1.27.2** (`go 1.27.2` in `bff/go.mod`, `golang:1.27.2-alpine`). Go 1.27.2
   fixes eight standard-library vulnerabilities, in `net/http` and its HTTP/2 implementation among
@@ -264,7 +270,8 @@ the server toolchain in the badge).
 
 Changes before this changelog was introduced are in the git history.
 
-[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.6.2...HEAD
+[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.6.3...HEAD
+[1.6.3]: https://github.com/ovander/oauth2-admin/compare/v1.6.2...v1.6.3
 [1.6.2]: https://github.com/ovander/oauth2-admin/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/ovander/oauth2-admin/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/ovander/oauth2-admin/compare/v1.5.0...v1.6.0
