@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest'
 import {
   attributesToRows,
   claimNameError,
+  isAppScope,
   mappingsToRows,
   parseList,
   rowsToAttributes,
@@ -34,6 +35,21 @@ describe('parseList / sameList', () => {
 describe('scopes and lifetime', () => {
   it('flags the scopes Socrate does not support', () => {
     expect(unsupportedScopes(['openid', 'email', 'admin'])).toEqual(['admin'])
+  })
+
+  it('accepts application scopes, as Socrate does (#336)', () => {
+    expect(unsupportedScopes(['api', 'swingdrift:worker', 'gpwa:sync.read', 'a-b:c_d-e'])).toEqual([])
+    expect(isAppScope('swingdrift:worker')).toBe(true)
+  })
+
+  it('refuses malformed or reserved application scopes', () => {
+    const bad = [
+      'monitoring:read', 'monitoring:evil', 'admin:x', 'socrate:x', 'openid:x', 'oauth2:x',
+      'Swingdrift:worker', 'swingdrift:Worker', 'swingdrift', 'a:b:c', ':worker', 'swingdrift:',
+      '1app:x', 'app:1x', 'app:wörker', 'app:x y', `${'a'.repeat(33)}:x`, `app:${'x'.repeat(65)}`,
+    ]
+    expect(unsupportedScopes(bad)).toEqual(bad)
+    expect(isAppScope(`${'a'.repeat(32)}:${'x'.repeat(64)}`)).toBe(true)
   })
 
   it('accepts 60 to 86400 whole seconds, or nothing', () => {

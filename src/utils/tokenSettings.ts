@@ -44,9 +44,31 @@ export function sameList(a: readonly string[] | undefined, b: readonly string[] 
   return x.length === y.length && x.every((v, i) => v === y[i])
 }
 
+/**
+ * Application-defined scope grammar, as Socrate checks it (go-oauth2 #336):
+ * `<namespace>:<name>`, lower-case ASCII, exactly one colon.
+ */
+export const APP_SCOPE_PATTERN = /^[a-z][a-z0-9-]{0,31}:[a-z][a-z0-9._-]{0,63}$/
+
+/**
+ * Namespaces an application scope may not use: those of Socrate's global
+ * scopes (openid … api, admin, monitoring) and the ones it reserves.
+ */
+export const RESERVED_SCOPE_NAMESPACES = [
+  'openid', 'email', 'profile', 'offline_access', 'api', 'admin', 'monitoring',
+  'socrate', 'oidc', 'oauth', 'oauth2',
+] as const
+
+/** isAppScope reports whether s is an application-defined scope Socrate accepts in allowed_scopes. */
+export function isAppScope(s: string): boolean {
+  if (!APP_SCOPE_PATTERN.test(s)) return false
+  const ns = s.slice(0, s.indexOf(':'))
+  return !(RESERVED_SCOPE_NAMESPACES as readonly string[]).includes(ns)
+}
+
 /** unsupportedScopes returns the scopes Socrate would refuse. */
 export function unsupportedScopes(scopes: readonly string[]): string[] {
-  return scopes.filter(s => !(SUPPORTED_SCOPES as readonly string[]).includes(s))
+  return scopes.filter(s => !(SUPPORTED_SCOPES as readonly string[]).includes(s) && !isAppScope(s))
 }
 
 /** ttlError returns why a lifetime is refused, or '' (null means the server default). */

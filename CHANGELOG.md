@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Added
+- Application token settings accept **application-defined scopes** in a client's allowed scopes,
+  `namespace:name` (e.g. `swingdrift:worker`), checked with the grammar and reserved namespaces
+  Socrate applies (ovander/go-oauth2#336), so an operator can grant one from the console. Other
+  unknown scopes are still flagged before saving. Needs a Socrate release with #336; an older
+  Socrate refuses the scope with a 400 on save. No BFF environment variable, Caddy or CSP change.
+
 ### Changed
 - BFF: backendkit v1.21.0 → v1.25.0; pending logins (PKCE verifier, login-binding nonce, return
   path) now use backendkit's bounded `bff.MemoryPendingLoginStore` instead of the BFF's own map:
