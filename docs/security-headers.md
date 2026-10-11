@@ -60,7 +60,7 @@ report-to csp
 ```
 
 (one line in the header). The first two are the Trusted Types rollout; the last two send each
-violation to the admin BFF (see [Reports](#reports)).
+violation to the admin BFF (see **Reports** below).
 
 `require-trusted-types-for 'script'` makes the DOM injection sinks (`innerHTML`,
 `insertAdjacentHTML`, `script.src`, `script.textContent`, …) refuse a plain string: a value must
@@ -195,7 +195,7 @@ admin.example.com {
 		-Server
 	}
 
-	@bff path /bff/* /api/admin/* /api/apps/* /api/profile /api/version /api/auth/request-password-reset /api/auth/reset-password
+	@bff path /bff/* /api/admin/* /api/apps/* /api/profile /api/profile/mfa /api/profile/mfa/* /api/version /api/auth/request-password-reset /api/auth/reset-password
 	handle @bff {
 		reverse_proxy 127.0.0.1:8091 {
 			flush_interval -1

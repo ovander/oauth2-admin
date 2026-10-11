@@ -9,12 +9,13 @@ the BFF keeps the tokens in a server-side session and injects the bearer on the 
 XSS or a poisoned SPA dependency therefore cannot read a replayable admin token.
 
 The BFF is a small Go module built on [backendkit](https://github.com/ovander/backendkit)
-(`bff/go.mod` pins the version):
+(`bff/go.mod` pins the version, v1.25.0, and declares `go 1.27.2`):
 
-- `backendkit/bff` provides the session store (in memory), the pending-login store (in memory,
-  bounded), the session and login-binding cookies, PKCE and random tokens, `return_to` sanitising, the SSE-aware reverse proxy, and the
-  `Gateway` that turns a session into a bearer (CSRF check, coalesced token refresh, fail-closed
-  401).
+- `backendkit/bff` provides the session store (in memory, `bff.NewMemoryStore`), the
+  pending-login store (in memory, bounded, `bff.MemoryPendingLoginStore`), the session and
+  login-binding cookies, PKCE and random tokens, `return_to` sanitising, the SSE-aware reverse
+  proxy, and the `Gateway` that turns a session into a bearer (CSRF check, coalesced token
+  refresh, fail-closed 401).
 - `backendkit/socrate` provides the token-set and OAuth error types shared with the gateway.
 
 This module adds the console-specific parts: the route allowlist, the login, callback, session
@@ -100,7 +101,8 @@ Everything else is `404`. The allowlist is in `app.go`.
   source file, line and column, and for Trusted Types the sink name. Query strings, fragments
   and userinfo are dropped from the URLs, each field is truncated to 256 bytes and stripped of
   control characters, and cookies, headers, the sample and the raw body are never logged.
-  Reading them: [`docs/security-headers.md`](../docs/security-headers.md#reports).
+  Reading them: the **Reports** paragraph of
+  [`docs/security-headers.md`](../docs/security-headers.md#trusted-types-staged).
 - **Step-up.** `/bff/elevate` forwards the admin API's `4xx` challenge so the dialog can
   re-prompt, never an upstream `5xx` body, and refuses an elevated token without a usable `exp`.
 - **Client IP.** Per-IP budgets use `X-Forwarded-For` only when the TCP peer is loopback (Caddy
@@ -116,6 +118,9 @@ Everything else is `404`. The allowlist is in `app.go`.
   replaces the header and never appends to a browser-supplied value.
 - **Logout revokes** the refresh and access tokens at the issuer (RFC 7009) before dropping the
   session.
+- **Sessions live in the process** (`bff.NewMemoryStore`, idle and absolute lifetimes from
+  `BFF_SESSION_IDLE` and `BFF_SESSION_ABSOLUTE`), so a restart or redeploy signs every admin out;
+  the SPA's 401 handling sends them back to the sign-in page.
 - **SSE-aware.** The proxies flush every write, so the security event stream is not buffered.
 
 ## Pass-through mode (migration only)

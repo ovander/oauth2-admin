@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Changed
+- Documentation brought up to date with v1.7.0 and checked against the code: the README feature
+  list (token settings, application-defined scopes, user attributes, MFA, the `.env` block, the
+  magic-link page), project tree and Socrate v1.14.0 prerequisite; the MFA routes in every
+  allowlist and Caddy outline; in-memory sessions; the `go` line of `bff/go.mod` in
+  `CONTRIBUTING.md`; tag builds and the go-oauth2 release kit in `deploy/README.md`; two broken
+  `#reports` links.
+
 ## [1.7.0] - 2026-10-11
 
 Minor release. Application token settings accept application-defined scopes (`namespace:name`,

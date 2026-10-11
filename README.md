@@ -56,9 +56,17 @@ around that:
 - Recent activity, application usage, and shortcuts to common tasks
 
 ### Applications
-- List, create, edit and delete OAuth applications: name, URL, redirect URIs
-- Public clients (PKCE only, no secret) or confidential clients, chosen at creation
+- List, create, edit, activate or deactivate, and delete OAuth applications: name, URL, redirect
+  URIs, and the magic-link page (Socrate's `magic_link_url`)
+- Public clients (PKCE only, no secret) or confidential clients, chosen at creation; a
+  confidential client can be created with **Require PKCE** (on by default)
+- The numeric app ID and the client ID with copy buttons, and a "Copy .env block" with the
+  `SOCRATE_*` variables an application's backend needs (a value the console does not know, such
+  as a secret it no longer shows, is a commented-out line)
 - Client-secret rotation, with the new secret displayed for copying
+- Token settings, at creation and on the Settings tab: audiences, allowed scopes (including
+  application-defined scopes `namespace:name`, e.g. `swingdrift:worker`), custom claims (claim
+  mappings) and the access-token lifetime, checked as Socrate checks them before saving
 - Per-application users: invite or add, change role, remove, resend verification, force a
   password reset
 - Per-application activity log
@@ -66,6 +74,8 @@ around that:
 ### Users
 - Global user list with role and verification status
 - User detail: application memberships, active sessions, revoke tokens, unlock, block, delete
+- User attributes, the free-form values claim mappings project into tokens (e.g. `tenant_id`),
+  with Socrate's limits checked before saving
 - Invite a user to an application
 - Superadmin accounts: create, edit, delete
 - Admin activity log
@@ -92,6 +102,8 @@ around that:
 - Server configuration overview, database and cache connection tests, and which server
   features are on (MFA, password policy, audit logging)
 - Own profile (name, email), password-reset email and own active sessions
+- Two-factor authentication for the operator: enrol with an authenticator app, recovery codes
+  shown once and regenerated, turn off with the password and a code
 - Forced password change when the server requires it
 - Idle warning and sign-out after 15 minutes of inactivity
 - Version badge, and a notice when the server is upgraded under an open tab
@@ -142,7 +154,7 @@ token when needed, injects the bearer and forwards to Socrate.
   ┌──────────┐ HTTPS ┌────────────────────────────────────────────────────────┐
   │ Browser  │──────▶│ /                            → built SPA (file_server) │
   │ • cookie │       │ /bff/*  /api/admin/*  /api/apps/*                      │
-  │ • CSRF   │       │ /api/profile  GET /api/version                         │
+  │ • CSRF   │       │ /api/profile  /api/profile/mfa[/*]  GET /api/version   │
   └──────────┘       │ POST /api/auth/{request-password-reset,reset-password} │
                      │                                → admin BFF             │
                      └───────────────────────────┬────────────────────────────┘
@@ -172,7 +184,8 @@ diagrams, the endpoint table and the security properties are in
 
 The SPA's calls live in `src/services/`, one file per area (`applicationService.ts`,
 `userService.ts`, `securityService.ts`, `monitoringService.ts`, `policyService.ts`,
-`dashboardService.ts`, `settingsService.ts`, `authService.ts`, and `session.ts` for `/bff/*`).
+`dashboardService.ts`, `settingsService.ts`, `authService.ts`, `mfaService.ts`, and `session.ts`
+for `/bff/*`).
 Read them for the exact admin API paths the console uses.
 
 ## Project structure
@@ -185,6 +198,8 @@ Read them for the exact admin API paths the console uses.
 │   ├── config.go                 # BFF_* environment variables and their validation
 │   ├── app.go                    # route allowlist, login/callback/session/logout handlers
 │   ├── server.go                 # canonical-path filter, health check
+│   ├── attribution.go            # client IP and User-Agent forwarded to Socrate
+│   ├── cspreport.go              # POST /bff/csp-report (logs CSP violations)
 │   ├── oauth.go                  # token exchange, refresh, revocation, user derivation
 │   ├── elevate.go                # /bff/elevate step-up
 │   ├── ratelimit.go              # per-IP budgets
@@ -215,11 +230,16 @@ src/
 │   └── tailwind.css              # Tailwind 4 theme and custom styles
 ├── components/
 │   ├── VersionBadge.vue          # client and server versions
+│   ├── applications/
+│   │   └── TokenSettingsFields.vue # audiences, scopes, claim mappings, token lifetime
 │   ├── dashboard/                # StatCard, ActivityFeed, QuickActions, SystemHealth
 │   ├── security/
 │   │   ├── ElevationDialog.vue   # step-up re-authentication prompt
+│   │   ├── MfaCard.vue           # the operator's own two-factor authentication
 │   │   └── SessionTimeoutWarning.vue
-│   └── ui/                       # EmptyState, LoadingState, PageHeader, StatusBadge
+│   ├── ui/                       # EmptyState, LoadingState, PageHeader, StatusBadge
+│   └── users/
+│       └── UserAttributesCard.vue # user attributes projected into tokens
 ├── composables/
 │   ├── useClipboard.ts
 │   ├── useConfirm.ts
@@ -245,6 +265,7 @@ src/
 │   ├── applicationService.ts     # /api/admin/apps, /api/apps/{id}/users and logs
 │   ├── authService.ts            # admin profile, password change and reset
 │   ├── dashboardService.ts
+│   ├── mfaService.ts             # /api/profile/mfa/* self-service
 │   ├── monitoringService.ts      # sessions, blocked IPs, alerts, reports, SSE event stream
 │   ├── policyService.ts          # /api/admin/policy/*
 │   ├── securityService.ts        # security events, admin audit log
@@ -257,11 +278,13 @@ src/
 ├── types/                        # application, auth, dashboard, index, monitoring, policy,
 │                                 # security, user
 ├── utils/
+│   ├── appEnv.ts                 # the "Copy .env block" of an application
 │   ├── devlog.ts                 # logging in development builds only
 │   ├── formatDate.ts
 │   ├── policy.ts                 # policy editor helpers
 │   ├── roles.ts                  # role checks
-│   └── secureConfig.ts           # VITE_* parsing; refuses a non-https origin in production
+│   ├── secureConfig.ts           # VITE_* parsing; refuses a non-https origin in production
+│   └── tokenSettings.ts          # token-settings and user-attribute checks
 ├── views/
 │   ├── applications/             # list, create, detail (settings, users, activity)
 │   ├── auth/                     # login, change, forgot and reset password
@@ -269,7 +292,7 @@ src/
 │   ├── errors/                   # 403, 404
 │   ├── logs/                     # admin audit log
 │   ├── security/                 # overview, events, sessions, blocked IPs, alerts, reports, policy
-│   ├── settings/                 # settings, profile
+│   ├── settings/                 # settings, profile (with MFA)
 │   └── users/                    # list, detail
 ├── App.vue
 ├── env.d.ts
@@ -283,8 +306,8 @@ src/
 - Node.js 24 (the version in `.nvmrc`, which CI uses) and npm.
 - Go for the BFF: `bff/go.mod` declares `go 1.27.2`, which the Go command downloads for you
   (`GOTOOLCHAIN=auto`).
-- A reachable Socrate server with its issuer (by default `:8080`) and its loopback admin API
-  (`:8081`).
+- A reachable Socrate server, v1.14.0 or later (older servers refuse application-defined
+  scopes), with its issuer (by default `:8080`) and its loopback admin API (`:8081`).
 - In Socrate, a **confidential** OAuth client for the BFF, with the redirect URI
   `http://localhost:5173/bff/callback` for local development (in production,
   `https://admin.example.com/bff/callback`) and the scopes `openid profile email`.
@@ -346,7 +369,8 @@ npm run dev    # http://localhost:5173
 
 The Vite dev server (`src/dev/devProxy.ts`, used by `vite.config.ts`) forwards the same paths to
 the BFF on `localhost:8091` as Caddy does in production: `/bff/*`, `/api/admin/*`, `/api/apps/*`,
-`/api/profile`, `/api/version` and the two password-reset posts. Only `/oauth/*` goes straight to
+`/api/profile`, `/api/profile/mfa` and `/api/profile/mfa/*`, `/api/version` and the two
+password-reset posts. Only `/oauth/*` goes straight to
 the issuer on `localhost:8080`; any other path is served by the SPA. A unit test keeps this table
 in step with `deploy/Caddyfile`. Open `http://localhost:5173`, choose **Sign in with Socrate**,
 and complete Socrate's hosted login.
@@ -422,6 +446,11 @@ them to the server and installs them:
   sandboxing.
 - `deploy/env/admin-bff.env.example` and `deploy/scripts/`: the environment template, and the
   build, push, install and bootstrap scripts.
+
+`push.sh` takes a tag (`push.sh v1.7.0`) to build that exact tree. A whole-suite upgrade
+(Socrate and both consoles) can instead use the release kit in `ovander/go-oauth2`
+(`deploy/release-kit/socrate-release.sh <socrate> <admin> <monitoring>`), which builds this
+repository from its tag; [deploy/README.md](deploy/README.md#suite-release) has both.
 
 A container image is also available: `docker build -t socrate-admin-bff bff/`.
 

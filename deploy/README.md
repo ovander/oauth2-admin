@@ -24,12 +24,15 @@ and the BFF binary, next to Socrate.
                   └──┬────┬──┘
                      │    └─────────────► Socrate issuer 127.0.0.1:8080
                      │                    (token, revocation, /api/profile,
-                     │                     /api/version, password reset)
+                     │                     /api/profile/mfa, /api/version,
+                     │                     password reset)
                      └─── Bearer ─────────► admin API 127.0.0.1:8081 (loopback only)
 ```
 
-Allowlisted paths: `/bff/*`, `/api/admin/*`, `/api/apps/*`, `/api/profile`, `GET /api/version`,
-and `POST /api/auth/request-password-reset` and `/api/auth/reset-password`.
+Allowlisted paths: `/bff/*`, `/api/admin/*`, `/api/apps/*`, `/api/profile`, the MFA
+self-service routes (`/api/profile/mfa` and `/api/profile/mfa/*` in the Caddy matcher; the BFF
+allows `GET /api/profile/mfa` and `POST /api/profile/mfa/{enroll,confirm,recovery-codes,disable}`),
+`GET /api/version`, and `POST /api/auth/request-password-reset` and `/api/auth/reset-password`.
 
 ## Before you start: host names
 
@@ -74,7 +77,8 @@ contains `import /etc/caddy/sites/*.caddy`.
 
 ```bash
 # from your workstation
-VPS_HOST=user@your-host deploy/scripts/push.sh    # VPS_PORT defaults to 22
+VPS_HOST=user@your-host deploy/scripts/push.sh           # VPS_PORT defaults to 22
+VPS_HOST=user@your-host deploy/scripts/push.sh v1.7.0    # build that tag, not the working tree
 # build.sh runs first (SKIP_BUILD=1 reuses the last build)
 ```
 
@@ -87,6 +91,16 @@ previous binary if it fails.
 For the first deploy, enable the service once: `systemctl enable --now socrate-admin-bff`.
 `push.sh` does not ship the Caddyfile: after changing it, re-run `bootstrap.sh` on the host (or
 copy the file by hand) and reload Caddy.
+
+## Suite release
+
+To upgrade Socrate and both consoles together, the release kit in `ovander/go-oauth2`
+(`deploy/release-kit/`, see its README) replaces `push.sh`. From a folder holding the three
+clones, `bash go-oauth2/deploy/release-kit/socrate-release.sh <socrate-tag> <admin-tag>
+<monitoring-tag>` builds one bundle on the workstation; it takes this repository's BFF binary,
+SPA and systemd unit at the admin tag, and the CSP headers and `@bff` paths from its
+`deploy/Caddyfile`. On the host, `socrate-vps-install.sh` installs the bundle and
+`socrate-caddy-update.sh` brings the admin Caddy site in line with it, which `push.sh` does not.
 
 ## Rollback
 
@@ -103,7 +117,8 @@ sudo systemctl restart socrate-admin-bff
 - **The admin API is loopback-only** (`127.0.0.1:8081`) and has no public host name. The BFF is
   its only client; the browser never reaches it directly.
 - **The BFF is an allowlist**, never an open proxy: `/bff/*`, `/api/admin/*`, `/api/apps/*`,
-  `/api/profile`, `GET /api/version` and the two password-reset posts. Everything else is 404.
+  `/api/profile`, the five MFA self-service routes, `GET /api/version` and the two
+  password-reset posts. Everything else is 404.
 - **Hardened systemd unit:** `NoNewPrivileges`, `ProtectSystem=strict`, no capabilities,
   `SystemCallFilter=@system-service`, `MemoryDenyWriteExecute`, and more.
 - **Own service user:** the BFF runs as `socrate-admin-bff`, not as the identity server's
