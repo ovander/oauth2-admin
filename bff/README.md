@@ -11,8 +11,8 @@ XSS or a poisoned SPA dependency therefore cannot read a replayable admin token.
 The BFF is a small Go module built on [backendkit](https://github.com/ovander/backendkit)
 (`bff/go.mod` pins the version):
 
-- `backendkit/bff` provides the session store (in memory), the session and login-binding
-  cookies, PKCE and random tokens, `return_to` sanitising, the SSE-aware reverse proxy, and the
+- `backendkit/bff` provides the session store (in memory), the pending-login store (in memory,
+  bounded), the session and login-binding cookies, PKCE and random tokens, `return_to` sanitising, the SSE-aware reverse proxy, and the
   `Gateway` that turns a session into a bearer (CSRF check, coalesced token refresh, fail-closed
   401).
 - `backendkit/socrate` provides the token-set and OAuth error types shared with the gateway.
@@ -81,6 +81,13 @@ Everything else is `404`. The allowlist is in `app.go`.
   session and clears the cookie; an unreachable token endpoint is a retryable `502`.
 - **Login bound to the browser.** `/bff/login` sets a nonce cookie stored with the single-use
   `state`; `/bff/callback` completes only for the browser that presents it.
+- **Pending logins.** Between `/bff/login` and `/bff/callback` the PKCE verifier, the binding
+  nonce and the return path are kept server-side under the `state`, in backendkit's
+  `bff.MemoryPendingLoginStore`: single-use, 10 minutes, at most 10,000 at once (`/bff/login`
+  needs no session, so the store is bounded). An unknown, replayed or expired `state` is refused
+  with `400`. When the store is full, `/bff/login` answers `503` and does not redirect; any other
+  store error answers `500`. Pending logins live in the process, so a restart drops logins in
+  flight (the user signs in again).
 - **CSRF.** Unsafe methods on the proxy, and `/bff/logout` and `/bff/elevate`, need the
   double-submit `X-CSRF-Token` from `/bff/session`.
 - **CSP reports (`cspreport.go`).** Unlike the other `/bff/*` posts, `POST /bff/csp-report` has no

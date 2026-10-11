@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -330,11 +332,120 @@ func TestCallbackRequiresLoginBindingCookie(t *testing.T) {
 }
 
 func TestUnknownStateRejected(t *testing.T) {
-	h, _, _, _, _, _ := phase2Harness(t)
+	h, a, _, _, _, _ := phase2Harness(t)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/callback?code=abc&state=forged", nil))
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("forged state = %d, want 400", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "invalid or expired state") {
+		t.Fatalf("forged state body = %q", rr.Body.String())
+	}
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == a.cookieName() && c.Value != "" {
+			t.Fatal("a session cookie was minted for an unknown state")
+		}
+	}
+}
+
+// startLogin drives /bff/login and returns the state and the binding cookie.
+func startLogin(t *testing.T, h http.Handler, a *app) (string, *http.Cookie) {
+	t.Helper()
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/login?return_to=/dashboard", nil))
+	if rr.Code != http.StatusFound {
+		t.Fatalf("login = %d, want 302", rr.Code)
+	}
+	loc, _ := url.Parse(rr.Header().Get("Location"))
+	return loc.Query().Get("state"), sessionCookie(t, rr, a.login.Cookie.CookieName())
+}
+
+// A state is accepted once: replaying a completed callback, even with the
+// browser's original binding cookie, is refused.
+func TestCallbackStateIsSingleUse(t *testing.T) {
+	h, a, _, _, _, _ := phase2Harness(t)
+	state, loginCookie := startLogin(t, h, a)
+
+	callback := func() *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/bff/callback?code=abc&state="+state, nil)
+		req.AddCookie(loginCookie)
+		h.ServeHTTP(rr, req)
+		return rr
+	}
+	if rr := callback(); rr.Code != http.StatusFound || rr.Header().Get("Location") != "/dashboard" {
+		t.Fatalf("first callback = %d %q, want 302 /dashboard", rr.Code, rr.Header().Get("Location"))
+	}
+	rr := callback()
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "invalid or expired state") {
+		t.Fatalf("replayed callback = %d %q, want 400 invalid or expired state", rr.Code, rr.Body.String())
+	}
+}
+
+// A pending login older than the TTL is refused at the callback, even with the
+// right binding cookie; the same entry within the TTL completes.
+func TestCallbackExpiredStateRejected(t *testing.T) {
+	h, a, _, _, _, _ := phase2Harness(t)
+	bindingCookie := &http.Cookie{Name: a.login.Cookie.CookieName(), Value: "nonce-1"}
+
+	callback := func(state string, created time.Time) *httptest.ResponseRecorder {
+		t.Helper()
+		p := bff.PendingLogin{Verifier: "verifier", Nonce: bindingCookie.Value, ReturnTo: "/dashboard", Created: created}
+		if err := a.logins.Put(context.Background(), state, p); err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/bff/callback?code=abc&state="+state, nil)
+		req.AddCookie(bindingCookie)
+		h.ServeHTTP(rr, req)
+		return rr
+	}
+
+	rr := callback("expired-state", time.Now().Add(-bff.DefaultPendingLoginTTL-time.Second))
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "invalid or expired state") {
+		t.Fatalf("expired state = %d %q, want 400 invalid or expired state", rr.Code, rr.Body.String())
+	}
+	if rr := callback("fresh-state", time.Now()); rr.Code != http.StatusFound {
+		t.Fatalf("fresh state = %d %q, want 302", rr.Code, rr.Body.String())
+	}
+}
+
+// The pending-login store is bounded (/bff/login needs no session). When it is
+// full, /bff/login answers 503 and does not redirect to Socrate.
+func TestLoginStoreFullIs503(t *testing.T) {
+	h, a, _, _, _, _ := phase2Harness(t)
+	a.logins = bff.NewMemoryPendingLoginStore(time.Minute, 1)
+
+	startLogin(t, h, a) // takes the only slot
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/login", nil))
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("login with a full store = %d, want 503", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "" {
+		t.Fatalf("login with a full store redirected to %q", loc)
+	}
+}
+
+// failingLoginStore refuses every Put with an error other than "full".
+type failingLoginStore struct{ bff.PendingLoginStore }
+
+func (failingLoginStore) Put(context.Context, string, bff.PendingLogin) error {
+	return errors.New("storage down")
+}
+
+// Any other store error also refuses the login: no redirect without stored state.
+func TestLoginStoreErrorRefuses(t *testing.T) {
+	h, a, _, _, _, _ := phase2Harness(t)
+	a.logins = failingLoginStore{a.logins}
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/login", nil))
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("login with a failing store = %d, want 500", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "" {
+		t.Fatalf("login with a failing store redirected to %q", loc)
 	}
 }
 

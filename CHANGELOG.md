@@ -13,6 +13,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
   unknown scopes are still flagged before saving. Needs a Socrate release with #336; an older
   Socrate refuses the scope with a 400 on save. No BFF environment variable, Caddy or CSP change.
 
+### Changed
+- BFF: backendkit v1.21.0 → v1.25.0; pending logins (PKCE verifier, login-binding nonce, return
+  path) now use backendkit's bounded `bff.MemoryPendingLoginStore` instead of the BFF's own map:
+  same single-use state, 10-minute TTL and fail-closed callback, but `/bff/login` answers `503`
+  without redirecting when 10,000 logins are in flight (`500` on any other store error). No BFF
+  environment variable, Caddy or CSP change.
+
 ## [1.6.3] - 2026-10-10
 
 Security patch: the BFF is built with Go 1.27.2, which fixes eight standard-library

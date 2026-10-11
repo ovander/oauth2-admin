@@ -10,67 +10,11 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ovander/backendkit/bff"
 	"github.com/ovander/backendkit/socrate"
 )
-
-// ── Pending logins (PKCE state) ───────────────────────────────────────────────
-
-type pendingLogin struct {
-	verifier string
-	returnTo string
-	// nonce is the bff.LoginBinding value issued to the browser that started
-	// this login; the callback only completes for a browser presenting it.
-	nonce   string
-	created time.Time
-}
-
-// loginStore holds in-flight logins keyed by state. Entries are single-use
-// (deleted on take → CSRF defense for the callback) and TTL-bounded.
-type loginStore struct {
-	mu  sync.Mutex
-	m   map[string]pendingLogin
-	ttl time.Duration
-}
-
-func newLoginStore(ttl time.Duration) *loginStore {
-	return &loginStore{m: make(map[string]pendingLogin), ttl: ttl}
-}
-
-func (l *loginStore) put(state string, p pendingLogin) {
-	l.mu.Lock()
-	l.m[state] = p
-	l.mu.Unlock()
-}
-
-// take returns and DELETES the pending login for state. It returns false if the
-// state is unknown or expired (both → reject the callback).
-func (l *loginStore) take(state string) (pendingLogin, bool) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	p, ok := l.m[state]
-	if !ok {
-		return pendingLogin{}, false
-	}
-	delete(l.m, state)
-	if time.Since(p.created) > l.ttl {
-		return pendingLogin{}, false
-	}
-	return p, true
-}
-
-func (l *loginStore) sweep() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	for state, p := range l.m {
-		if time.Since(p.created) > l.ttl {
-			delete(l.m, state)
-		}
-	}
-}
 
 // ── Token endpoint client (back-channel) ──────────────────────────────────────
 
