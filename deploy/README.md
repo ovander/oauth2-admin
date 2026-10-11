@@ -78,7 +78,7 @@ contains `import /etc/caddy/sites/*.caddy`.
 ```bash
 # from your workstation
 VPS_HOST=user@your-host deploy/scripts/push.sh           # VPS_PORT defaults to 22
-VPS_HOST=user@your-host deploy/scripts/push.sh v1.7.0    # build that tag, not the working tree
+VPS_HOST=user@your-host deploy/scripts/push.sh v1.7.1    # build that tag, not the working tree
 # build.sh runs first (SKIP_BUILD=1 reuses the last build)
 ```
 

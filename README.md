@@ -447,7 +447,7 @@ them to the server and installs them:
 - `deploy/env/admin-bff.env.example` and `deploy/scripts/`: the environment template, and the
   build, push, install and bootstrap scripts.
 
-`push.sh` takes a tag (`push.sh v1.7.0`) to build that exact tree. A whole-suite upgrade
+`push.sh` takes a tag (`push.sh v1.7.1`) to build that exact tree. A whole-suite upgrade
 (Socrate and both consoles) can instead use the release kit in `ovander/go-oauth2`
 (`deploy/release-kit/socrate-release.sh <socrate> <admin> <monitoring>`), which builds this
 repository from its tag; [deploy/README.md](deploy/README.md#suite-release) has both.

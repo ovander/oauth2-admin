@@ -6,12 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
-### Fixed
-- BFF: backendkit v1.25.0 → v1.27.0. Its in-memory session store now keeps a logout tombstone
-  (backendkit v1.26.1): a request that was in flight during a sign-out (a proxied call touching the
-  session, or a token refresh writing rotated tokens back) could re-insert the session the logout
-  had just revoked. Nothing else in v1.26.0–v1.27.0 reaches this BFF. No BFF environment variable,
-  Caddy or CSP change.
+## [1.7.1] - 2026-10-11
+
+Patch release. The BFF moves to backendkit v1.27.0, whose in-memory session store keeps a logout
+tombstone, so a request in flight during a sign-out can no longer bring the revoked session back;
+the documentation is brought up to date with the code. **Deploy notes:** no BFF environment
+variable, Caddy or CSP change; works with Socrate v1.14.0 or later.
 
 ### Changed
 - Documentation brought up to date with v1.7.0 and checked against the code: the README feature
@@ -20,6 +20,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
   allowlist and Caddy outline; in-memory sessions; the `go` line of `bff/go.mod` in
   `CONTRIBUTING.md`; tag builds and the go-oauth2 release kit in `deploy/README.md`; two broken
   `#reports` links.
+
+### Fixed
+- BFF: backendkit v1.25.0 → v1.27.0. Its in-memory session store now keeps a logout tombstone
+  (backendkit v1.26.1): a request that was in flight during a sign-out (a proxied call touching the
+  session, or a token refresh writing rotated tokens back) could re-insert the session the logout
+  had just revoked. Nothing else in v1.26.0–v1.27.0 reaches this BFF. No BFF environment variable,
+  Caddy or CSP change.
 
 ## [1.7.0] - 2026-10-11
 
@@ -308,7 +315,8 @@ the server toolchain in the badge).
 
 Changes before this changelog was introduced are in the git history.
 
-[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/ovander/oauth2-admin/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/ovander/oauth2-admin/compare/v1.6.3...v1.7.0
 [1.6.3]: https://github.com/ovander/oauth2-admin/compare/v1.6.2...v1.6.3
 [1.6.2]: https://github.com/ovander/oauth2-admin/compare/v1.6.1...v1.6.2
