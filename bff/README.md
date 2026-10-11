@@ -9,7 +9,7 @@ the BFF keeps the tokens in a server-side session and injects the bearer on the 
 XSS or a poisoned SPA dependency therefore cannot read a replayable admin token.
 
 The BFF is a small Go module built on [backendkit](https://github.com/ovander/backendkit)
-(`bff/go.mod` pins the version, v1.25.0, and declares `go 1.27.2`):
+(`bff/go.mod` pins the version, v1.27.0, and declares `go 1.27.2`):
 
 - `backendkit/bff` provides the session store (in memory, `bff.NewMemoryStore`), the
   pending-login store (in memory, bounded, `bff.MemoryPendingLoginStore`), the session and
