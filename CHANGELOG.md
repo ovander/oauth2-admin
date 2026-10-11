@@ -6,11 +6,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-11
+
+Minor release. Application token settings accept application-defined scopes (`namespace:name`,
+e.g. `swingdrift:worker`) in a client's allowed scopes, so an operator can grant one from the
+console; and the BFF moves to backendkit v1.25.0, keeping pending logins in its bounded
+`bff.MemoryPendingLoginStore` (`/bff/login` answers `503` when 10,000 logins are in flight).
+**Deploy notes:** no BFF environment variable, Caddy or CSP change. Application scopes need Socrate
+v1.14.0 or later (an older Socrate refuses them with a 400 on save).
+
 ### Added
 - Application token settings accept **application-defined scopes** in a client's allowed scopes,
   `namespace:name` (e.g. `swingdrift:worker`), checked with the grammar and reserved namespaces
   Socrate applies (ovander/go-oauth2#336), so an operator can grant one from the console. Other
-  unknown scopes are still flagged before saving. Needs a Socrate release with #336; an older
+  unknown scopes are still flagged before saving. Needs Socrate v1.14.0 or later (#336); an older
   Socrate refuses the scope with a 400 on save. No BFF environment variable, Caddy or CSP change.
 
 ### Changed
@@ -284,7 +293,8 @@ the server toolchain in the badge).
 
 Changes before this changelog was introduced are in the git history.
 
-[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.6.3...HEAD
+[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/ovander/oauth2-admin/compare/v1.6.3...v1.7.0
 [1.6.3]: https://github.com/ovander/oauth2-admin/compare/v1.6.2...v1.6.3
 [1.6.2]: https://github.com/ovander/oauth2-admin/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/ovander/oauth2-admin/compare/v1.6.0...v1.6.1
