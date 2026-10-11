@@ -20,8 +20,9 @@ gateway. The console-specific code is in [`bff/`](../bff/README.md).
   │ holds:   │           │  /api/admin/*              │                        │
   │  • cookie│           │  /api/apps/*               │                        │
   │  • CSRF  │           │  /api/profile              ├─▶ reverse_proxy        │
-  └──────────┘           │  GET /api/version          │   127.0.0.1:8091       │
-                         │  POST /api/auth/request-   │   (admin BFF)          │
+  └──────────┘           │  /api/profile/mfa[/*]      │   127.0.0.1:8091       │
+                         │  GET /api/version          │   (admin BFF)          │
+                         │  POST /api/auth/request-   │                        │
                          │       password-reset       │                        │
                          │  POST /api/auth/reset-     │                        │
                          │       password             ┘                        │
@@ -46,7 +47,8 @@ gateway. The console-specific code is in [`bff/`](../bff/README.md).
 The admin API (`:8081`) is **loopback only**; the BFF is its sole client. The issuer's public
 origin (for example `socrate.example.com`) is used only for the browser-facing authorize
 redirect and Socrate's hosted login. All the calls the BFF makes to the issuer (token exchange,
-refresh, revocation, `/api/profile`, `/api/version`, password reset) go over loopback.
+refresh, revocation, `/api/profile` and its MFA routes, `/api/version`, password reset) go over
+loopback.
 
 ## What the browser holds
 
@@ -130,7 +132,7 @@ page.
 - **Step-up**: `/bff/elevate` re-authenticates server-side and absorbs the short-lived elevated
   token into the session; it never reaches the browser.
 - **Session lifetime**: idle (30 minutes) and absolute (8 hours) by default, swept every
-  minute.
+  minute. Sessions are held in the BFF's memory, so a restart signs every admin out.
 - **Identity**: derived by decoding the access-token payload without verifying the signature.
   The token comes straight from the issuer over loopback and is never accepted from the
   browser; the admin API verifies it on every call.
