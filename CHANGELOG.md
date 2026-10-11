@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Fixed
+- BFF: backendkit v1.25.0 → v1.27.0. Its in-memory session store now keeps a logout tombstone
+  (backendkit v1.26.1): a request that was in flight during a sign-out (a proxied call touching the
+  session, or a token refresh writing rotated tokens back) could re-insert the session the logout
+  had just revoked. Nothing else in v1.26.0–v1.27.0 reaches this BFF. No BFF environment variable,
+  Caddy or CSP change.
+
 ### Changed
 - Documentation brought up to date with v1.7.0 and checked against the code: the README feature
   list (token settings, application-defined scopes, user attributes, MFA, the `.env` block, the
