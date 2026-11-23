@@ -83,7 +83,10 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────────
   e2e-tests:
     name: E2E tests (Playwright)
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to Ubuntu 26.04, where Playwright cannot
+    # install Chromium yet ("does not support chromium on ubuntu26.04-x64").
+    # Back to ubuntu-latest once Playwright supports it.
+    runs-on: ubuntu-24.04
     # E2E tests only run on PRs and pushes to main/develop (same trigger as the
     # workflow), but we wait for the fast jobs to pass first to give faster
     # feedback on lint/type errors.
