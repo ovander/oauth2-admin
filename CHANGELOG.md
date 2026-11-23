@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Changed
+- CI: the Playwright job runs on `ubuntu-24.04`. `ubuntu-latest` moved to Ubuntu 26.04, where
+  Playwright cannot install Chromium yet, so the job failed before running any test. Same tests,
+  same browser.
+
 ## [1.7.1] - 2026-10-11
 
 Patch release. The BFF moves to backendkit v1.27.0, whose in-memory session store keeps a logout
