@@ -15,6 +15,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 - Dependencies: `follow-redirects` 1.16.0 → 1.16.3 (axios; GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c,
   GHSA-mrwp-f3q8-3g9p), and the dev tools `vite` → 6.4.6 and `happy-dom` → 21.0.4 (GHSA-698v-4r3x-3vcv
   and related, GHSA-834v-8h66-3h79 and related). The npm audit gate is green again; no runtime code
+- BFF built with **Go 1.27.4** (`go 1.27.4` in `bff/go.mod`, `golang:1.27.4-alpine`). Go 1.27.3 and
+  1.27.4 fix GO-2026-6809 (`crypto/x509`) and GO-2026-6859 (`net/http`) in the standard library
+  the BFF links: rebuild and redeploy. No code change; no BFF environment variable, Caddy or CSP
   change.
 
 ## [1.7.1] - 2026-10-11
