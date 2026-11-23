@@ -6,6 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Security
+- Dependencies: `follow-redirects` 1.16.0 → 1.16.3 (axios; GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c,
+  GHSA-mrwp-f3q8-3g9p), and the dev tools `vite` → 6.4.6 and `happy-dom` → 21.0.4 (GHSA-698v-4r3x-3vcv
+  and related, GHSA-834v-8h66-3h79 and related). The npm audit gate is green again; no runtime code
+  change.
+
 ## [1.7.1] - 2026-10-11
 
 Patch release. The BFF moves to backendkit v1.27.0, whose in-memory session store keeps a logout
