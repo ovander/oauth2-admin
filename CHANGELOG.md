@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-11-23
+
+Security patch release. The BFF is built with **Go 1.27.4**, which fixes two standard-library
+vulnerabilities (`crypto/x509`, `net/http`); `follow-redirects` (via axios) moves to 1.16.3; the
+dev tools `vite` and `happy-dom` are updated. **Deploy notes:** rebuild and redeploy; no BFF
+environment variable, Caddy or CSP change; works with Socrate v1.14.0 or later.
+
 ### Changed
 - CI: the Playwright job runs on `ubuntu-24.04`. `ubuntu-latest` moved to Ubuntu 26.04, where
   Playwright cannot install Chromium yet, so the job failed before running any test. Same tests,
@@ -15,6 +22,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 - Dependencies: `follow-redirects` 1.16.0 → 1.16.3 (axios; GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c,
   GHSA-mrwp-f3q8-3g9p), and the dev tools `vite` → 6.4.6 and `happy-dom` → 21.0.4 (GHSA-698v-4r3x-3vcv
   and related, GHSA-834v-8h66-3h79 and related). The npm audit gate is green again; no runtime code
+  change.
 - BFF built with **Go 1.27.4** (`go 1.27.4` in `bff/go.mod`, `golang:1.27.4-alpine`). Go 1.27.3 and
   1.27.4 fix GO-2026-6809 (`crypto/x509`) and GO-2026-6859 (`net/http`) in the standard library
   the BFF links: rebuild and redeploy. No code change; no BFF environment variable, Caddy or CSP
@@ -329,7 +337,8 @@ the server toolchain in the badge).
 
 Changes before this changelog was introduced are in the git history.
 
-[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/ovander/oauth2-admin/compare/v1.7.2...HEAD
+[1.7.2]: https://github.com/ovander/oauth2-admin/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/ovander/oauth2-admin/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/ovander/oauth2-admin/compare/v1.6.3...v1.7.0
 [1.6.3]: https://github.com/ovander/oauth2-admin/compare/v1.6.2...v1.6.3
