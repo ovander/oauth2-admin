@@ -470,26 +470,13 @@
     </Dialog>
 
     <!-- Edit Superadmin Dialog -->
-    <Dialog v-model:visible="showEditDialog" modal header="Edit Superadmin" :style="{ width: '450px' }">
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Name</label>
-          <InputText v-model="editForm.name" class="w-full" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Email</label>
-          <InputText v-model="editForm.email" class="w-full" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">New Password</label>
-          <Password v-model="editForm.password" toggleMask :feedback="false" class="w-full" placeholder="Leave blank to keep current" />
-        </div>
-      </div>
-      <template #footer>
-        <Button label="Cancel" severity="secondary" outlined @click="showEditDialog = false" />
-        <Button label="Save Changes" icon="pi pi-check" @click="saveEditedSuperadmin" :loading="editingSuperadmin" />
-      </template>
-    </Dialog>
+    <EditSuperadminDialog
+      v-model:visible="showEditDialog"
+      :superadmin="superadminToEdit"
+      :current-user-id="authStore.user?.id"
+      :saving="editingSuperadmin"
+      @save="saveEditedSuperadmin"
+    />
 
     <!-- Delete Superadmin Confirmation -->
     <Dialog v-model:visible="showDeleteDialog" modal header="Delete Superadmin" :style="{ width: '450px' }">
@@ -530,6 +517,8 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Dialog from 'primevue/dialog'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import EditSuperadminDialog from '@/components/users/EditSuperadminDialog.vue'
+import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/composables/useToast'
 import {
   getUsers,
@@ -543,10 +532,11 @@ import {
   adminActionLabels
 } from '@/services/userService'
 import { getApps, addUserToApp } from '@/services/applicationService'
-import type { GlobalUser, Superadmin, AdminActivityLog } from '@/types/user'
+import type { GlobalUser, Superadmin, AdminActivityLog, UpdateSuperadminRequest } from '@/types/user'
 import type { App } from '@/types/application'
 
 const router = useRouter()
+const authStore = useAuthStore()
 const { showSuccess, showError } = useToast()
 
 // State
@@ -586,11 +576,6 @@ const newSuperadmin = reactive({
   password: ''
 })
 
-const editForm = reactive({
-  name: '',
-  email: '',
-  password: ''
-})
 
 // Methods
 async function loadUsers() {
@@ -675,21 +660,14 @@ async function createNewSuperadmin() {
 
 function openEditDialog(superadmin: Superadmin) {
   superadminToEdit.value = superadmin
-  editForm.name = superadmin.name
-  editForm.email = superadmin.email
-  editForm.password = ''
   showEditDialog.value = true
 }
 
-async function saveEditedSuperadmin() {
+async function saveEditedSuperadmin(update: UpdateSuperadminRequest) {
   if (!superadminToEdit.value) return
   editingSuperadmin.value = true
   try {
-    await updateSuperadmin(superadminToEdit.value.id, {
-      name: editForm.name || undefined,
-      email: editForm.email || undefined,
-      password: editForm.password || undefined
-    })
+    await updateSuperadmin(superadminToEdit.value.id, update)
     showSuccess('Superadmin updated successfully')
     showEditDialog.value = false
     loadSuperadmins()

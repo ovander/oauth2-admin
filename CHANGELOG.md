@@ -6,6 +6,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Fixed
+- **Editing your own superadmin account no longer offers a "New Password" field.** Socrate refuses
+  a change to your own password on `PUT /api/admin/superadmins/{id}` (400, "use
+  /api/admin/change-password"), so saving with that field filled failed. The dialog now links to
+  Change Password, which asks for the current password, and never sends one for your own account.
+  The edit dialog moves to `src/components/users/EditSuperadminDialog.vue`.
+- **A signed-in admin can open Change Password.** The router sent every signed-in user away from
+  the `/auth` pages to the dashboard, Change Password included, so it was reachable only while a
+  password change was forced. The guard's decision moves to `src/router/guard.ts`, which the router
+  and its tests both run (the tests used to replicate it). **Deploy notes:** SPA only; no BFF,
+  Caddy or CSP change.
+
 ## [1.7.2] - 2026-11-23
 
 Security patch release. The BFF is built with **Go 1.27.4**, which fixes two standard-library

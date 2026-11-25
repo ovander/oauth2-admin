@@ -16,7 +16,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import {
-  passwordChangeRequired,
   flagPasswordChangeRequired,
   clearPasswordChangeRequired,
 } from '@/services/adminGuards'
@@ -35,9 +34,9 @@ vi.mock('@/stores/authStore', () => ({
 // ─── Minimal route definitions to exercise each guard branch ─────────────────
 import { useAuthStore } from '@/stores/authStore'
 
-// We can't import router.ts directly because it tries to load all route
-// components and the full app wiring.  Instead we replicate the guard logic
-// under test — this keeps tests fast and decoupled from unrelated code.
+// The guard's decision lives in src/router/guard.ts, which router.ts runs on
+// every navigation; these tests exercise that very function.
+import { guardNavigation } from '@/router/guard'
 
 type GuardNext = (arg?: unknown) => void
 
@@ -47,39 +46,13 @@ interface RouteLocation {
   name?:    string
 }
 
-/**
- * Replicated guard function — identical logic to the one in router.ts.
- * Keeping it in-sync is enforced by the tests themselves: if the guard
- * changes security behaviour, at least one test will fail.
- */
+/** runGuard is router.ts's beforeEach: guardNavigation, then next. */
 async function runGuard(
   to:   RouteLocation,
   next: GuardNext,
 ) {
-  const authStore = useAuthStore()
-
-  if (!authStore.isAuthenticated) {
-    await authStore.checkAuth()
-  }
-
-  if (passwordChangeRequired.value && to.name !== 'ChangePassword') {
-    return next({ name: 'ChangePassword' })
-  }
-
-  if (to.meta['guest'] && authStore.isAuthenticated) {
-    return next({ name: 'Dashboard' })
-  }
-
-  if (to.meta['requiresAuth'] && !authStore.isAuthenticated) {
-    const safePath = /^\/[^/]/.test(to.fullPath) ? to.fullPath : undefined
-    return next({ name: 'Login', query: safePath ? { redirect: safePath } : {} })
-  }
-
-  if (to.meta['requiresSuperAdmin'] && !authStore.isSuperAdmin) {
-    return next({ name: 'Forbidden' })
-  }
-
-  next()
+  const redirect = await guardNavigation(to, useAuthStore())
+  return redirect ? next(redirect) : next()
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -122,6 +95,22 @@ describe('Router guards', () => {
       const next = vi.fn()
       await runGuard({ meta: { guest: true }, fullPath: '/auth/login' }, next)
       expect(next).toHaveBeenCalledWith({ name: 'Dashboard' })
+    })
+
+    it('lets an authenticated admin open the change-password page', async () => {
+      storeState.isAuthenticated = true
+      const next = vi.fn()
+      await runGuard({ meta: { guest: true, passwordChange: true }, fullPath: '/auth/change-password', name: 'ChangePassword' }, next)
+      expect(next).toHaveBeenCalledWith()
+    })
+
+    it('still redirects an authenticated admin away from the other guest pages', async () => {
+      storeState.isAuthenticated = true
+      for (const name of ['ForgotPassword', 'ResetPassword']) {
+        const next = vi.fn()
+        await runGuard({ meta: { guest: true }, fullPath: `/auth/${name}`, name }, next)
+        expect(next).toHaveBeenCalledWith({ name: 'Dashboard' })
+      }
     })
 
     it('allows unauthenticated user to reach login page', async () => {

@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
-import { passwordChangeRequired } from '@/services/adminGuards'
+import { guardNavigation } from './guard'
 
 // Layouts
 import AuthLayout  from '@/layouts/AuthLayout.vue'
@@ -66,41 +66,8 @@ router.beforeEach(async (to, _from, next) => {
   const title = to.meta.title as string | undefined
   document.title = title ? `${title} | Socrate` : 'Socrate — Superadmin Portal'
 
-  const authStore = useAuthStore()
-
-  // Re-hydrate auth state on every cold navigation. This asks the BFF whether
-  // the session cookie is valid (`GET /bff/session`) and, as a side effect,
-  // loads the CSRF token needed by every state-changing request — including the
-  // change-password form below.
-  if (!authStore.isAuthenticated) {
-    await authStore.checkAuth()
-  }
-
-  // Forced password change gates EVERY other route until resolved
-  // (ADMIN-SPA-MIGRATION.md §6). The change-password page itself is exempt so it
-  // remains reachable (and avoids a redirect-to-self loop).
-  if (passwordChangeRequired.value && to.name !== 'ChangePassword') {
-    return next({ name: 'ChangePassword' })
-  }
-
-  // Guest routes: redirect authenticated users to dashboard
-  if (to.meta.guest && authStore.isAuthenticated) {
-    return next({ name: 'Dashboard' })
-  }
-
-  // Protected routes: require authentication
-  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    // Only preserve safe internal redirect paths (F-04)
-    const safePath = /^\/[^/]/.test(to.fullPath) ? to.fullPath : undefined
-    return next({ name: 'Login', query: safePath ? { redirect: safePath } : {} })
-  }
-
-  // Super-admin-only routes
-  if (to.meta.requiresSuperAdmin && !authStore.isSuperAdmin) {
-    return next({ name: 'Forbidden' })
-  }
-
-  next()
+  const redirect = await guardNavigation(to, useAuthStore())
+  return redirect ? next(redirect) : next()
 })
 
 export default router
