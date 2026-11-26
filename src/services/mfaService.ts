@@ -29,14 +29,26 @@ export async function beginMfaEnrollment(): Promise<MfaEnrollment> {
   return response.data
 }
 
-/** confirmMfa enables MFA with a code from the authenticator app. */
-export async function confirmMfa(code: string): Promise<void> {
-  await api.post('/api/profile/mfa/confirm', { code })
+/**
+ * confirmMfa enables MFA with a code from the authenticator app and returns the
+ * first recovery codes, which Socrate sends with the confirmation since v1.16.1
+ * (the code just used cannot be used again to ask for them). An older Socrate,
+ * or one that could not generate them, answers 204: the list is then empty.
+ */
+export async function confirmMfa(code: string): Promise<string[]> {
+  const response = await api.post<{ recovery_codes?: string[] } | ''>('/api/profile/mfa/confirm', { code })
+  const data = response.data
+  return data && Array.isArray(data.recovery_codes) ? data.recovery_codes : []
 }
 
-/** generateRecoveryCodes replaces the recovery codes and returns the new set (shown once). */
-export async function generateRecoveryCodes(): Promise<string[]> {
-  const response = await api.post<{ recovery_codes: string[] }>('/api/profile/mfa/recovery-codes')
+/**
+ * generateRecoveryCodes replaces the recovery codes and returns the new set
+ * (shown once). With the password and a current code, it re-proves the account
+ * first, as Socrate requires under MFA_RECOVERY_CODES_REVERIFY_MODE=enforce.
+ */
+export async function generateRecoveryCodes(password?: string, code?: string): Promise<string[]> {
+  const body = code ? { password: password ?? '', code } : undefined
+  const response = await api.post<{ recovery_codes: string[] }>('/api/profile/mfa/recovery-codes', body)
   return response.data.recovery_codes
 }
 

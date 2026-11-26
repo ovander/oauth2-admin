@@ -14,8 +14,15 @@ vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
 const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'
 const CODES = ['aaaa-1111', 'bbbb-2222', 'cccc-3333']
 
-function routes(enabled: boolean) {
-  const state = { enabled, confirmedWith: '', disabledWith: null as null | Record<string, string> }
+// codesOnConfirm: Socrate v1.16.1+ sends the first recovery codes with the
+// confirmation; an older one answers 204 and gives them on request.
+function routes(enabled: boolean, codesOnConfirm = true) {
+  const state = {
+    enabled,
+    confirmedWith: '',
+    disabledWith: null as null | Record<string, string>,
+    codesRequests: [] as Array<Record<string, string> | null>,
+  }
   server.use(
     http.get(`${BASE}/api/profile/mfa`, () =>
       HttpResponse.json({ enabled: state.enabled, recovery_codes_remaining: state.enabled ? 3 : 0 })),
@@ -26,9 +33,13 @@ function routes(enabled: boolean) {
       if (body.code !== '123456') return HttpResponse.json({ error: 'invalid code' }, { status: 400 })
       state.confirmedWith = body.code
       state.enabled = true
-      return new HttpResponse(null, { status: 204 })
+      return codesOnConfirm ? HttpResponse.json({ recovery_codes: CODES }) : new HttpResponse(null, { status: 204 })
     }),
-    http.post(`${BASE}/api/profile/mfa/recovery-codes`, () => HttpResponse.json({ recovery_codes: CODES })),
+    http.post(`${BASE}/api/profile/mfa/recovery-codes`, async ({ request }) => {
+      const text = await request.text()
+      state.codesRequests.push(text ? JSON.parse(text) as Record<string, string> : null)
+      return HttpResponse.json({ recovery_codes: CODES })
+    }),
     http.post(`${BASE}/api/profile/mfa/disable`, async ({ request }) => {
       state.disabledWith = await request.json() as Record<string, string>
       state.enabled = false
@@ -60,6 +71,9 @@ describe('MfaCard', () => {
     expect(state.confirmedWith).toBe('123456')
     const shown = w.get('[data-testid="mfa-recovery-codes"]').text()
     for (const c of CODES) expect(shown).toContain(c)
+    // The codes came with the confirmation: no second request, which the
+    // issuer could refuse without a fresh code.
+    expect(state.codesRequests).toEqual([])
 
     await w.get('[data-testid="mfa-codes-done"]').trigger('click')
     await flushPromises()
@@ -67,6 +81,47 @@ describe('MfaCard', () => {
     expect(w.text()).toContain('3 recovery code(s) left')
     // Nothing of the enrolment is kept in browser storage.
     expect(JSON.stringify({ ...localStorage, ...sessionStorage })).not.toContain(SECRET)
+  })
+
+  it('asks for the first codes when an older issuer does not send them with the confirmation', async () => {
+    const state = routes(false, false)
+    const w = mount(MfaCard)
+    await flushPromises()
+    await w.get('[data-testid="mfa-start"]').trigger('click')
+    await flushPromises()
+    await w.get('[data-testid="mfa-code"]').setValue('123456')
+    await w.get('[data-testid="mfa-enroll"]').trigger('submit')
+    await flushPromises()
+
+    expect(state.codesRequests).toEqual([null])
+    const shown = w.get('[data-testid="mfa-recovery-codes"]').text()
+    for (const c of CODES) expect(shown).toContain(c)
+  })
+
+  it('replaces the recovery codes with the password and a code', async () => {
+    const state = routes(true)
+    const w = mount(MfaCard)
+    await flushPromises()
+
+    await w.get('[data-testid="mfa-new-codes"]').trigger('click')
+    await flushPromises()
+    // Nothing is replaced before the account is re-proved.
+    expect(state.codesRequests).toEqual([])
+    await w.get('#mfa-codes-password').setValue('S3cret!pass')
+    await w.get('#mfa-codes-code').setValue(' 654321 ')
+    await w.get('[data-testid="mfa-new-codes-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(state.codesRequests).toEqual([{ password: 'S3cret!pass', code: '654321' }])
+    const shown = w.get('[data-testid="mfa-recovery-codes"]').text()
+    for (const c of CODES) expect(shown).toContain(c)
+    // The password and code are not kept once used.
+    await w.get('[data-testid="mfa-codes-done"]').trigger('click')
+    await flushPromises()
+    await w.get('[data-testid="mfa-new-codes"]').trigger('click')
+    await flushPromises()
+    expect((w.get('#mfa-codes-password').element as HTMLInputElement).value).toBe('')
+    expect((w.get('#mfa-codes-code').element as HTMLInputElement).value).toBe('')
   })
 
   it('keeps the enrolment open when the code is refused', async () => {

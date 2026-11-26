@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+### Security
+
+- **Replacing the MFA recovery codes asks for the password and a current code.** New recovery
+  codes are a second factor: the security page now asks for both before replacing them and
+  sends them to Socrate, which requires them under `MFA_RECOVERY_CODES_REVERIFY_MODE=enforce`
+  (Socrate v1.16.1). The first codes, shown when MFA is turned on, come with the confirmation
+  (Socrate v1.16.1 sends them there, since the code just used cannot be used again); with an
+  older Socrate they are asked for as before. Deploy note: works with Socrate v1.16.0 and
+  later; deploy this console before setting the Socrate mode to `observe` or `enforce`.
+
 ## [1.7.3] - 2026-11-26
 
 Patch release: editing your own superadmin account, and reaching Change Password while signed in.
