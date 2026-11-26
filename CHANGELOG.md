@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.7.4] - 2026-11-26
+
+Security patch release: replacing the MFA recovery codes asks for the password and a current
+code, and the first codes come with the MFA confirmation. **Deploy notes:** SPA only; no BFF
+environment variable, Caddy or CSP change; works with Socrate v1.16.0 and later. Deploy it before
+setting Socrate's `MFA_RECOVERY_CODES_REVERIFY_MODE` (v1.16.1) to `observe` or `enforce`.
+
 ### Security
 
 - **Replacing the MFA recovery codes asks for the password and a current code.** New recovery
