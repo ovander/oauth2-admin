@@ -66,6 +66,28 @@
       </div>
     </form>
 
+    <!-- New recovery codes: the issuer can require the password and a code -->
+    <form v-else-if="regenerating" class="space-y-4" data-testid="mfa-new-codes-form" @submit.prevent="newCodes">
+      <p class="text-sm text-gray-700 dark:text-gray-300">
+        Confirm with your password and a current code to replace your recovery codes. The codes you
+        have now stop working.
+      </p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label for="mfa-codes-password" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
+          <InputText id="mfa-codes-password" v-model="codesPassword" type="password" autocomplete="current-password" class="w-full" />
+        </div>
+        <div>
+          <label for="mfa-codes-code" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Code or recovery code</label>
+          <InputText id="mfa-codes-code" v-model="codesCode" autocomplete="one-time-code" class="w-full" />
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <Button type="submit" label="Replace the codes" :loading="busy" :disabled="!codesPassword || !codesCode.trim()" />
+        <Button label="Cancel" severity="secondary" text :disabled="busy" @click="cancelNewCodes" />
+      </div>
+    </form>
+
     <!-- Disabling -->
     <form v-else-if="disabling" class="space-y-4" data-testid="mfa-disable" @submit.prevent="disable">
       <p class="text-sm text-gray-700 dark:text-gray-300">
@@ -103,7 +125,7 @@
         {{ status.recovery_codes_remaining }} recovery code(s) left.
       </p>
       <div class="flex flex-wrap gap-2">
-        <Button label="New recovery codes" icon="pi pi-refresh" severity="secondary" size="small" :loading="busy" data-testid="mfa-new-codes" @click="newCodes" />
+        <Button label="New recovery codes" icon="pi pi-refresh" severity="secondary" size="small" :disabled="busy" data-testid="mfa-new-codes" @click="regenerating = true" />
         <Button label="Turn off" severity="danger" text size="small" @click="disabling = true" />
       </div>
     </div>
@@ -129,6 +151,9 @@ const enrollment = ref<mfa.MfaEnrollment | null>(null)
 const code = ref('')
 const recoveryCodes = ref<string[]>([])
 const disabling = ref(false)
+const regenerating = ref(false)
+const codesPassword = ref('')
+const codesCode = ref('')
 const disablePassword = ref('')
 const disableCode = ref('')
 
@@ -168,18 +193,38 @@ async function start() {
 async function confirm() {
   busy.value = true
   try {
-    await mfa.confirmMfa(code.value.trim())
+    const first = await mfa.confirmMfa(code.value.trim())
     enrollment.value = null
     code.value = ''
     toast.success('Two-factor authentication is on')
-    // Hand out recovery codes right away: without them a lost phone locks the account.
-    recoveryCodes.value = await mfa.generateRecoveryCodes()
+    // Hand out recovery codes right away: without them a lost phone locks the
+    // account. Socrate sends them with the confirmation; an older one does not,
+    // and gives them on request instead.
+    recoveryCodes.value = first.length ? first : await firstCodesFallback()
     await load()
   } catch (e) {
     toast.error('Code not accepted', getErrorMessage(e))
   } finally {
     busy.value = false
   }
+}
+
+// firstCodesFallback asks for the first recovery codes when the confirmation
+// brought none (an older Socrate). MFA is on either way: a refusal only means
+// the codes are to be generated from the card.
+async function firstCodesFallback(): Promise<string[]> {
+  try {
+    return await mfa.generateRecoveryCodes()
+  } catch (e) {
+    toast.error('Generate your recovery codes now', getErrorMessage(e))
+    return []
+  }
+}
+
+function cancelNewCodes() {
+  regenerating.value = false
+  codesPassword.value = ''
+  codesCode.value = ''
 }
 
 function cancelEnrollment() {
@@ -190,7 +235,8 @@ function cancelEnrollment() {
 async function newCodes() {
   busy.value = true
   try {
-    recoveryCodes.value = await mfa.generateRecoveryCodes()
+    recoveryCodes.value = await mfa.generateRecoveryCodes(codesPassword.value, codesCode.value.trim())
+    cancelNewCodes()
     await load()
   } catch (e) {
     toast.error('Could not generate recovery codes', getErrorMessage(e))

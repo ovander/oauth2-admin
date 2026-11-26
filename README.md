@@ -103,7 +103,7 @@ around that:
   features are on (MFA, password policy, audit logging)
 - Own profile (name, email), password-reset email and own active sessions
 - Two-factor authentication for the operator: enrol with an authenticator app, recovery codes
-  shown once and regenerated, turn off with the password and a code
+  shown once and replaced with the password and a code, turn off with the password and a code
 - Forced password change when the server requires it
 - Idle warning and sign-out after 15 minutes of inactivity
 - Version badge, and a notice when the server is upgraded under an open tab
