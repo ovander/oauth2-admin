@@ -6,6 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-11-26
+
+Patch release: editing your own superadmin account, and reaching Change Password while signed in.
+**Deploy notes:** SPA only; no BFF environment variable, Caddy or CSP change; works with the same
+Socrate versions as v1.7.2.
+
 ### Fixed
 - **Editing your own superadmin account no longer offers a "New Password" field.** Socrate refuses
   a change to your own password on `PUT /api/admin/superadmins/{id}` (400, "use
@@ -15,8 +21,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follo
 - **A signed-in admin can open Change Password.** The router sent every signed-in user away from
   the `/auth` pages to the dashboard, Change Password included, so it was reachable only while a
   password change was forced. The guard's decision moves to `src/router/guard.ts`, which the router
-  and its tests both run (the tests used to replicate it). **Deploy notes:** SPA only; no BFF,
-  Caddy or CSP change.
+  and its tests both run (the tests used to replicate it).
 
 ## [1.7.2] - 2026-11-23
 
